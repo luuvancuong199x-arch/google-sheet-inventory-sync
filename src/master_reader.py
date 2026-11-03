@@ -117,13 +117,35 @@ def parse_master_sheet_rows(
 
     return results
 
+_MASTER_WORKBOOK_CACHE = None
+
+def _get_master_workbook_openpyxl():
+    global _MASTER_WORKBOOK_CACHE
+    if _MASTER_WORKBOOK_CACHE is not None:
+        return _MASTER_WORKBOOK_CACHE
+    from src.auth import get_drive_service
+    from googleapiclient.http import MediaIoBaseDownload
+    import io
+    import openpyxl
+
+    drive = get_drive_service()
+    req = drive.files().get_media(fileId=MASTER_SPREADSHEET_ID)
+    fh = io.BytesIO()
+    downloader = MediaIoBaseDownload(fh, req)
+    done = False
+    while not done:
+        status, done = downloader.next_chunk()
+    fh.seek(0)
+    _MASTER_WORKBOOK_CACHE = openpyxl.load_workbook(fh, data_only=True)
+    return _MASTER_WORKBOOK_CACHE
+
 def get_project_agency_links(
     sheets_service: Any,
     project_key: str,
     sub_tab: Optional[str] = None
 ) -> List[Dict[str, Any]]:
     """
-    Truy vấn trực tiếp Master Sheet qua Google Sheets API v4 và trả về danh sách các link đại lý.
+    Truy vấn trực tiếp Master Sheet qua Google Sheets API v4 hoặc Drive API (.xlsx) và trả về danh sách các link đại lý.
     """
     try:
         range_name = f"'{project_key}'!A1:Z500"
@@ -136,5 +158,16 @@ def get_project_agency_links(
         rows = resp.get('values', [])
         return parse_master_sheet_rows(rows, project_key, sub_tab_filter=sub_tab)
     except Exception as e:
-        logger.error(f"Lỗi khi đọc tab '{project_key}' từ Master Sheet: {e}")
-        return []
+        # Nếu file là Office file (.xlsx) hoặc có lỗi Sheets API, dùng fallback Drive API + openpyxl
+        try:
+            wb = _get_master_workbook_openpyxl()
+            if project_key in wb.sheetnames:
+                ws = wb[project_key]
+                rows = [[str(c.value or '') if c.value is not None else '' for c in r] for r in ws.iter_rows()]
+                return parse_master_sheet_rows(rows, project_key, sub_tab_filter=sub_tab)
+            else:
+                logger.error(f"Không tìm thấy tab '{project_key}' trong Master Sheet (.xlsx)")
+                return []
+        except Exception as ex2:
+            logger.error(f"Lỗi khi đọc tab '{project_key}' từ Master Sheet: {e} | Fallback xlsx: {ex2}")
+            return []

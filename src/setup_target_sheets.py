@@ -118,20 +118,20 @@ def create_target_spreadsheet(
         except Exception as e:
             logger.warning(f"   ! Không thể cấp quyền cho email {share_email}: {e}")
 
-    # 3. Mở quyền xem hoặc sửa qua link (nếu bật public_link)
+    # 3. Mở quyền chỉnh sửa qua link (nếu bật public_link)
     if public_link:
         try:
             drive_service.permissions().create(
                 fileId=new_id,
                 body={
                     'type': 'anyone',
-                    'role': 'reader'
+                    'role': 'writer'
                 },
                 fields='id'
             ).execute()
-            logger.info(f"   + Đã mở quyền xem công khai qua liên kết")
+            logger.info(f"   + Đã mở quyền chỉnh sửa (Editor) công khai qua liên kết")
         except Exception as e:
-            logger.warning(f"   ! Lỗi mở quyền xem liên kết: {e}")
+            logger.warning(f"   ! Lỗi mở quyền liên kết: {e}")
 
     return {
         'key': project_key,
@@ -165,7 +165,7 @@ def main():
     parser.add_argument(
         "--email",
         type=str,
-        required=True,
+        default=None,
         help="Email Google cá nhân của bạn để nhận quyền chỉnh sửa (Editor) cho 12 file (ví dụ: yourname@gmail.com)"
     )
     parser.add_argument(

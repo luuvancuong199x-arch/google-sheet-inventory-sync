@@ -11,7 +11,7 @@ import gspread
 
 SCOPES = [
     'https://www.googleapis.com/auth/spreadsheets',
-    'https://www.googleapis.com/auth/drive.readonly'
+    'https://www.googleapis.com/auth/drive'
 ]
 
 def get_credentials():

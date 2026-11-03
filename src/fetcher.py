@@ -5,6 +5,7 @@ Sử dụng ThreadPoolExecutor để tăng tốc độ quét từ 40 phút xuố
 
 import re
 import logging
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, List, Any, Optional, Tuple
 
@@ -21,6 +22,25 @@ from src.normalizer import (
 )
 
 logger = logging.getLogger(__name__)
+
+_thread_local = threading.local()
+
+def _get_thread_sheets_service(default_service=None):
+    """Mỗi thread sở hữu một instance Google Sheets API riêng biệt để tránh SSL collision."""
+    if not hasattr(_thread_local, 'sheets_service'):
+        from src.auth import get_sheets_service
+        try:
+            _thread_local.sheets_service = get_sheets_service()
+        except Exception:
+            _thread_local.sheets_service = default_service
+    return _thread_local.sheets_service
+
+def _get_thread_drive_service():
+    """Mỗi thread sở hữu một instance Google Drive API riêng biệt."""
+    if not hasattr(_thread_local, 'drive_service'):
+        from src.auth import get_drive_service
+        _thread_local.drive_service = get_drive_service()
+    return _thread_local.drive_service
 
 def map_columns_from_headers(header_cells: List[str]) -> Dict[str, int]:
     """Ánh xạ tên cột sang chỉ số cột 0-based."""
@@ -293,26 +313,82 @@ def parse_agency_grid_data(
 
     return scanned_units
 
-def fetch_single_agency(
+def fetch_agency_from_drive_xlsx(
+    file_id: str,
+    target_gid: Optional[int],
+    agency_name: str,
+    project_key: str,
+    is_low_rise: bool,
+    existing_pool_keys: set,
+    today_str: str,
+    sheets_service: Any = None
+) -> List[Dict[str, Any]]:
+    """Tải và phân tích bảng hàng đại lý dạng file Excel (.xlsx) lưu trên Google Drive."""
+    try:
+        import io
+        import openpyxl
+        from googleapiclient.http import MediaIoBaseDownload
+
+        drive = _get_thread_drive_service()
+        req = drive.files().get_media(fileId=file_id)
+        fh = io.BytesIO()
+        downloader = MediaIoBaseDownload(fh, req)
+        done = False
+        while not done:
+            status, done = downloader.next_chunk()
+        fh.seek(0)
+        wb = openpyxl.load_workbook(fh, data_only=True)
+
+        ws = wb.active or wb.worksheets[0]
+        grid_rows = []
+        for r in ws.iter_rows():
+            row_cells = []
+            for c in r:
+                val = str(c.value or '') if c.value is not None else ''
+                link = c.hyperlink.target if getattr(c, 'hyperlink', None) else ''
+                row_cells.append({'formattedValue': val, 'hyperlink': link})
+            grid_rows.append(row_cells)
+
+        return parse_agency_grid_data(
+            grid_rows,
+            agency_name=agency_name,
+            project_key=project_key,
+            is_low_rise=is_low_rise,
+            existing_pool_keys=existing_pool_keys,
+            today_str=today_str
+        )
+    except Exception as e:
+        err_msg = str(e)
+        if "fileNotDownloadable" in err_msg or "Use Export with Docs Editors" in err_msg:
+            # File thực chất là Google Sheet bản địa chứ không phải binary xlsx -> đọc bằng Sheets API
+            return fetch_agency_from_google_sheet(
+                sheets_service=sheets_service or _get_thread_sheets_service(),
+                file_id=file_id,
+                target_gid=target_gid,
+                agency_name=agency_name,
+                project_key=project_key,
+                is_low_rise=is_low_rise,
+                existing_pool_keys=existing_pool_keys,
+                today_str=today_str
+            )
+        logger.warning(f"Lỗi khi đọc bảng hàng Excel .xlsx {agency_name} ({file_id}): {e}")
+        return []
+
+def fetch_agency_from_google_sheet(
     sheets_service: Any,
-    agency_info: Dict[str, Any],
+    file_id: str,
+    target_gid: Optional[int],
+    agency_name: str,
     project_key: str,
     is_low_rise: bool,
     existing_pool_keys: set,
     today_str: str
 ) -> List[Dict[str, Any]]:
-    """Tải và phân tích 1 đại lý đơn lẻ."""
-    agency_name = agency_info.get("agency", "Không rõ")
-    file_id = agency_info.get("file_id")
-    target_gid = agency_info.get("gid")
-
-    if agency_info.get("is_excel"):
-        logger.warning(f"Bỏ qua file Excel .xlsx chưa convert: {agency_name} ({file_id})")
-        return []
-
+    """Tải và phân tích bảng hàng đại lý dạng Google Sheets bản địa."""
+    service = _get_thread_sheets_service(sheets_service)
     try:
         # Lấy metadata danh sách sheet để tìm sheetId phù hợp
-        meta = sheets_service.spreadsheets().get(spreadsheetId=file_id).execute()
+        meta = service.spreadsheets().get(spreadsheetId=file_id).execute()
         sheets = meta.get('sheets', [])
         chosen_sheet_title = None
 
@@ -330,7 +406,7 @@ def fetch_single_agency(
             chosen_sheet_title = sheets[0]['properties']['title']
 
         # Đọc dữ liệu ma trận ô (values + hyperlinks) chỉ trong 1 request duy nhất!
-        grid_resp = sheets_service.spreadsheets().get(
+        grid_resp = service.spreadsheets().get(
             spreadsheetId=file_id,
             ranges=[f"'{chosen_sheet_title}'!A1:AZ2000"],
             fields="sheets.data.rowData.values(formattedValue,hyperlink)"
@@ -357,8 +433,56 @@ def fetch_single_agency(
             today_str=today_str
         )
     except Exception as e:
+        err_msg = str(e)
+        if "must not be an Office file" in err_msg or "not supported for this document" in err_msg:
+            return fetch_agency_from_drive_xlsx(
+                file_id=file_id,
+                target_gid=target_gid,
+                agency_name=agency_name,
+                project_key=project_key,
+                is_low_rise=is_low_rise,
+                existing_pool_keys=existing_pool_keys,
+                today_str=today_str,
+                sheets_service=service
+            )
         logger.warning(f"Lỗi khi đọc bảng hàng đại lý {agency_name} ({file_id}): {e}")
         return []
+
+def fetch_single_agency(
+    sheets_service: Any,
+    agency_info: Dict[str, Any],
+    project_key: str,
+    is_low_rise: bool,
+    existing_pool_keys: set,
+    today_str: str
+) -> List[Dict[str, Any]]:
+    """Tải và phân tích 1 đại lý đơn lẻ."""
+    agency_name = agency_info.get("agency", "Không rõ")
+    file_id = agency_info.get("file_id")
+    target_gid = agency_info.get("gid")
+
+    if agency_info.get("is_excel"):
+        return fetch_agency_from_drive_xlsx(
+            file_id=file_id,
+            target_gid=target_gid,
+            agency_name=agency_name,
+            project_key=project_key,
+            is_low_rise=is_low_rise,
+            existing_pool_keys=existing_pool_keys,
+            today_str=today_str,
+            sheets_service=sheets_service
+        )
+
+    return fetch_agency_from_google_sheet(
+        sheets_service=sheets_service,
+        file_id=file_id,
+        target_gid=target_gid,
+        agency_name=agency_name,
+        project_key=project_key,
+        is_low_rise=is_low_rise,
+        existing_pool_keys=existing_pool_keys,
+        today_str=today_str
+    )
 
 def fetch_all_agencies_for_project(
     sheets_service: Any,

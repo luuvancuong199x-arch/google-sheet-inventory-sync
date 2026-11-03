@@ -37,7 +37,7 @@ def sync_single_project(
     project_key: str,
     today_str: str,
     dry_run: bool = False,
-    max_workers: int = 12
+    max_workers: int = 5
 ) -> dict:
     """Đồng bộ một dự án cụ thể."""
     config = TARGET_PROJECTS.get(project_key)
@@ -128,7 +128,7 @@ def main():
     parser.add_argument("--all", action="store_true", help="Đồng bộ toàn bộ 12 dự án")
     parser.add_argument("--project", type=str, help="Đồng bộ riêng 1 dự án (ví dụ: 'làng vân', 'VRI'...)")
     parser.add_argument("--dry-run", action="store_true", help="Chạy quét thử nghiệm, không ghi đè vào Sheet đích")
-    parser.add_argument("--max-workers", type=int, default=12, help="Số luồng quét song song (mặc định 12)")
+    parser.add_argument("--max-workers", type=int, default=5, help="Số luồng quét song song (mặc định 5)")
     args = parser.parse_args()
 
     sheets_service = get_sheets_service()

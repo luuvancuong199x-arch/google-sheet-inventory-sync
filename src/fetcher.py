@@ -4,6 +4,7 @@ Sử dụng ThreadPoolExecutor để tăng tốc độ quét từ 40 phút xuố
 """
 
 import re
+import time
 import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -24,6 +25,20 @@ from src.normalizer import (
 logger = logging.getLogger(__name__)
 
 _thread_local = threading.local()
+
+def _execute_with_retry(request_call, max_retries=3):
+    """Thực thi Google API request kèm cơ chế tự động chờ (Backoff) khi chạm quota 429."""
+    for attempt in range(max_retries):
+        try:
+            return request_call.execute()
+        except Exception as e:
+            err_str = str(e)
+            if ("429" in err_str or "RATE_LIMIT_EXCEEDED" in err_str) and attempt < max_retries - 1:
+                wait_time = (2 ** attempt) * 2 + 1
+                time.sleep(wait_time)
+                continue
+            raise e
+    return request_call.execute()
 
 def _get_thread_sheets_service(default_service=None):
     """Mỗi thread sở hữu một instance Google Sheets API riêng biệt để tránh SSL collision."""
@@ -388,7 +403,7 @@ def fetch_agency_from_google_sheet(
     service = _get_thread_sheets_service(sheets_service)
     try:
         # Lấy metadata danh sách sheet để tìm sheetId phù hợp
-        meta = service.spreadsheets().get(spreadsheetId=file_id).execute()
+        meta = _execute_with_retry(service.spreadsheets().get(spreadsheetId=file_id))
         sheets = meta.get('sheets', [])
         chosen_sheet_title = None
 
@@ -406,11 +421,13 @@ def fetch_agency_from_google_sheet(
             chosen_sheet_title = sheets[0]['properties']['title']
 
         # Đọc dữ liệu ma trận ô (values + hyperlinks) chỉ trong 1 request duy nhất!
-        grid_resp = service.spreadsheets().get(
-            spreadsheetId=file_id,
-            ranges=[f"'{chosen_sheet_title}'!A1:AZ2000"],
-            fields="sheets.data.rowData.values(formattedValue,hyperlink)"
-        ).execute()
+        grid_resp = _execute_with_retry(
+            service.spreadsheets().get(
+                spreadsheetId=file_id,
+                ranges=[f"'{chosen_sheet_title}'!A1:AZ2000"],
+                fields="sheets.data.rowData.values(formattedValue,hyperlink)"
+            )
+        )
 
         grid_data = grid_resp['sheets'][0]['data'][0].get('rowData', [])
         parsed_rows = []
@@ -491,7 +508,7 @@ def fetch_all_agencies_for_project(
     is_low_rise: bool,
     existing_pool_keys: set,
     today_str: str,
-    max_workers: int = 10
+    max_workers: int = 5
 ) -> List[Dict[str, Any]]:
     """Tải và quét toàn bộ danh sách đại lý của 1 dự án song song đa luồng."""
     all_units = []

@@ -57,6 +57,50 @@ def _get_thread_drive_service():
         _thread_local.drive_service = get_drive_service()
     return _thread_local.drive_service
 
+def classify_rgb_color(r: float, g: float, b: float) -> str:
+    """Phân loại màu RGB (giá trị 0.0 - 1.0) thành 'red', 'yellow', hoặc 'neutral'."""
+    # Trắng, xám hoặc gần đồng màu -> neutral
+    if abs(r - g) < 0.05 and abs(g - b) < 0.05:
+        return 'neutral'
+    # Màu vàng / cam / hổ phách: cả R và G đều cao, B thấp hơn rõ rệt
+    if r > 0.65 and g > 0.60 and (min(r, g) - b) >= 0.10:
+        return 'yellow'
+    # Màu đỏ: R vượt trội so với G và B
+    if r > 0.50 and (r - max(g, b)) >= 0.10 and (r - g) >= 0.10:
+        return 'red'
+    return 'neutral'
+
+def classify_hex_color(hex_str: str) -> str:
+    """Phân loại màu dạng chuỗi hex (AARRGGBB hoặc RRGGBB) của openpyxl."""
+    if not hex_str or not isinstance(hex_str, str):
+        return 'neutral'
+    s = hex_str.strip().lstrip('#')
+    if len(s) == 8:
+        # Bỏ qua kênh Alpha AARRGGBB
+        s = s[2:]
+    if len(s) != 6:
+        return 'neutral'
+    try:
+        r = int(s[0:2], 16) / 255.0
+        g = int(s[2:4], 16) / 255.0
+        b = int(s[4:6], 16) / 255.0
+        return classify_rgb_color(r, g, b)
+    except ValueError:
+        return 'neutral'
+
+def get_openpyxl_cell_color(cell) -> str:
+    """Lấy và phân loại màu nền của ô trong file openpyxl."""
+    fill = getattr(cell, 'fill', None)
+    if not fill or not getattr(fill, 'fill_type', None):
+        return 'neutral'
+    c = getattr(fill, 'start_color', None) or getattr(fill, 'fgColor', None)
+    if not c:
+        return 'neutral'
+    rgb = getattr(c, 'rgb', None)
+    if rgb and isinstance(rgb, str):
+        return classify_hex_color(rgb)
+    return 'neutral'
+
 def map_columns_from_headers(header_cells: List[str]) -> Dict[str, int]:
     """Ánh xạ tên cột sang chỉ số cột 0-based."""
     headers = [str(c or '').lower().strip() for c in header_cells]
@@ -148,9 +192,10 @@ def parse_agency_grid_data(
     project_key: str,
     is_low_rise: bool,
     existing_pool_keys: set,
-    today_str: str
+    today_str: str,
+    row_hidden_flags: Optional[List[bool]] = None
 ) -> List[Dict[str, Any]]:
-    """Phân tích dữ liệu ma trận ô (values, hyperlinks) thành danh sách căn hộ chuẩn hóa."""
+    """Phân tích dữ liệu ma trận ô (values, hyperlinks, màu sắc) thành danh sách căn hộ chuẩn hóa."""
     if not grid_rows or len(grid_rows) < 2:
         return []
 
@@ -225,7 +270,15 @@ def parse_agency_grid_data(
 
         unit_key = unit_code
 
-        # Trạng thái căn
+        # 1. Kiểm tra dòng bị ẩn (hiddenByUser hoặc hiddenByFilter hoặc ws.row_dimensions.hidden)
+        is_row_hidden = bool(row_hidden_flags and r < len(row_hidden_flags) and row_hidden_flags[r])
+
+        # 2. Kiểm tra màu nền của dòng (quét các cột chính và các ô đầu dòng)
+        row_colors = [c.get('color_type', 'neutral') for c in row[:15]]
+        is_red = ('red' in row_colors)
+        is_yellow = ('yellow' in row_colors)
+
+        # 3. Trạng thái căn từ văn bản nguồn
         raw_status = get_val(row, cm['status']).strip().lower()
         raw_note = get_val(row, cm['note']).strip().lower()
         combined_status = f"{raw_status} {raw_note}"
@@ -234,12 +287,22 @@ def parse_agency_grid_data(
             any(kw in combined_status for kw in ['đã bán', 'da ban', 'sold', 'đã cọc', 'da coc', 'hết hàng', 'thu', 'thu hồi'])
         )
 
-        if unit_key in existing_pool_keys:
-            resolved_status = 'Đã bán' if is_sold_signal else ('Đang lock' if 'lock' in combined_status else 'Còn hàng')
+        # Quy tắc xác định trạng thái (Ưu tiên màu sắc và ẩn dòng theo yêu cầu nghiệp vụ):
+        # - Bị bôi đỏ HOẶC dòng bị ẩn -> Tự động đặt trạng thái 'Đã bán' (ghi đè lên trạng thái của nguồn)
+        # - Bị bôi vàng -> Tự động đặt trạng thái 'Đang lock'
+        # - Nguồn ghi rõ đã bán -> 'Đã bán'
+        # - Nguồn ghi rõ lock -> 'Đang lock'
+        # - Hết tô màu đỏ/vàng và không ẩn dòng -> Tự động cập nhật lại là 'Còn hàng'
+        if is_red or is_row_hidden:
+            resolved_status = 'Đã bán'
+        elif is_yellow:
+            resolved_status = 'Đang lock'
+        elif is_sold_signal:
+            resolved_status = 'Đã bán'
+        elif 'lock' in combined_status:
+            resolved_status = 'Đang lock'
         else:
-            if is_sold_signal:
-                continue  # Bỏ qua căn mới đã bán từ đầu
-            resolved_status = 'Đang lock' if 'lock' in combined_status else 'Còn hàng'
+            resolved_status = 'Còn hàng'
 
         # Nhóm quỹ: Độc quyền vs Quỹ chung
         raw_fund = get_val(row, cm['fund_group']).strip()
@@ -390,15 +453,26 @@ def fetch_agency_from_drive_xlsx(
 
         all_units = []
         for ws in wb.worksheets:
+            # Bỏ qua các tab bị ẩn (sheet hidden/veryHidden)
+            if getattr(ws, 'sheet_state', 'visible') != 'visible':
+                continue
             if skip_rx.search(ws.title):
                 continue
             grid_rows = []
-            for r in ws.iter_rows():
+            row_hidden_flags = []
+            for r_idx, r in enumerate(ws.iter_rows(), start=1):
+                rd = ws.row_dimensions.get(r_idx)
+                row_hidden_flags.append(bool(getattr(rd, 'hidden', False)))
                 row_cells = []
                 for c in r:
                     val = str(c.value or '') if c.value is not None else ''
                     link = c.hyperlink.target if getattr(c, 'hyperlink', None) else ''
-                    row_cells.append({'formattedValue': val, 'hyperlink': link})
+                    color_type = get_openpyxl_cell_color(c)
+                    row_cells.append({
+                        'formattedValue': val,
+                        'hyperlink': link,
+                        'color_type': color_type
+                    })
                 grid_rows.append(row_cells)
 
             parsed = parse_agency_grid_data(
@@ -407,7 +481,8 @@ def fetch_agency_from_drive_xlsx(
                 project_key=project_key,
                 is_low_rise=is_low_rise,
                 existing_pool_keys=existing_pool_keys,
-                today_str=today_str
+                today_str=today_str,
+                row_hidden_flags=row_hidden_flags
             )
             all_units.extend(parsed)
 
@@ -450,6 +525,10 @@ def fetch_agency_from_google_sheet(
         if target_gid is not None:
             for sh in sheets:
                 if sh['properties']['sheetId'] == target_gid:
+                    # Nếu tab chỉ định bị ẩn -> bỏ qua
+                    if sh['properties'].get('hidden', False):
+                        logger.info(f"Tab GID {target_gid} trong {agency_name} ({file_id}) bị ẩn. Bỏ qua.")
+                        return []
                     chosen_sheet_title = sh['properties']['title']
                     break
 
@@ -458,28 +537,50 @@ def fetch_agency_from_google_sheet(
                 # Nếu GID không tìm thấy: BỎ QUA, không quét nhầm tab đầu tiên!
                 logger.warning(f"Không tìm thấy GID {target_gid} trong file {agency_name} ({file_id}). Bỏ qua link.")
                 return []
-            chosen_sheet_title = sheets[0]['properties']['title']
+            for sh in sheets:
+                if not sh['properties'].get('hidden', False):
+                    chosen_sheet_title = sh['properties']['title']
+                    break
+            if not chosen_sheet_title:
+                chosen_sheet_title = sheets[0]['properties']['title']
 
-        # Đọc dữ liệu ma trận ô (values + hyperlinks) chỉ trong 1 request duy nhất!
+        # Đọc dữ liệu ma trận ô (values + hyperlinks + backgroundColor) và rowMetadata
         grid_resp = _execute_with_retry(
             service.spreadsheets().get(
                 spreadsheetId=file_id,
                 ranges=[f"'{chosen_sheet_title}'!A1:AZ2000"],
-                fields="sheets.data.rowData.values(formattedValue,hyperlink)"
+                fields="sheets(data(rowData(values(formattedValue,hyperlink,effectiveFormat.backgroundColor)),rowMetadata(hiddenByUser,hiddenByFilter)),properties(title,sheetId))"
             )
         )
 
-        grid_data = grid_resp['sheets'][0]['data'][0].get('rowData', [])
+        sheet_obj = grid_resp['sheets'][0]
+        data_block = sheet_obj['data'][0]
+        grid_data = data_block.get('rowData', [])
+        row_metadata = data_block.get('rowMetadata', [])
+
         parsed_rows = []
-        for r_data in grid_data:
+        row_hidden_flags = []
+        for r_idx, r_data in enumerate(grid_data):
+            r_meta = row_metadata[r_idx] if r_idx < len(row_metadata) else {}
+            is_h = bool(r_meta.get('hiddenByUser') or r_meta.get('hiddenByFilter'))
+            row_hidden_flags.append(is_h)
+
             cells = r_data.get('values', [])
-            parsed_rows.append([
-                {
-                    'formattedValue': c.get('formattedValue', ''),
-                    'hyperlink': c.get('hyperlink', '')
-                }
-                for c in cells
-            ])
+            parsed_cells = []
+            for c in cells:
+                val = c.get('formattedValue', '')
+                link = c.get('hyperlink', '')
+                bg = c.get('effectiveFormat', {}).get('backgroundColor', {})
+                r_c = bg.get('red', 1.0)
+                g_c = bg.get('green', 1.0)
+                b_c = bg.get('blue', 1.0)
+                color_type = classify_rgb_color(r_c, g_c, b_c)
+                parsed_cells.append({
+                    'formattedValue': val,
+                    'hyperlink': link,
+                    'color_type': color_type
+                })
+            parsed_rows.append(parsed_cells)
 
         return parse_agency_grid_data(
             parsed_rows,
@@ -487,7 +588,8 @@ def fetch_agency_from_google_sheet(
             project_key=project_key,
             is_low_rise=is_low_rise,
             existing_pool_keys=existing_pool_keys,
-            today_str=today_str
+            today_str=today_str,
+            row_hidden_flags=row_hidden_flags
         )
     except Exception as e:
         err_msg = str(e)
@@ -549,11 +651,13 @@ def fetch_all_agencies_for_project(
     existing_pool_keys: set,
     today_str: str,
     max_workers: int = 5
-) -> List[Dict[str, Any]]:
-    """Tải và quét toàn bộ danh sách đại lý của 1 dự án song song đa luồng."""
+) -> Tuple[List[Dict[str, Any]], set]:
+    """Tải và quét toàn bộ danh sách đại lý của 1 dự án song song đa luồng.
+    Trả về (all_units, successful_agencies) để phục vụ Smart Upsert chính xác."""
     all_units = []
+    successful_agencies = set()
     if not agency_links:
-        return all_units
+        return all_units, successful_agencies
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {
@@ -570,11 +674,14 @@ def fetch_all_agencies_for_project(
 
         for future in as_completed(futures):
             agency = futures[future]
+            ag_name = agency.get('agency')
             try:
                 units = future.result()
-                if units:
-                    all_units.extend(units)
+                if units is not None:
+                    successful_agencies.add(ag_name)
+                    if units:
+                        all_units.extend(units)
             except Exception as e:
-                logger.error(f"Ngoại lệ khi quét {agency.get('agency')}: {e}")
+                logger.error(f"Ngoại lệ khi quét {ag_name}: {e}")
 
-    return all_units
+    return all_units, successful_agencies

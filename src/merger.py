@@ -6,7 +6,7 @@ Module hợp nhất dữ liệu thông minh và chống mất trắng dữ liệ
 - Ưu tiên trạng thái Đã bán nếu bất kỳ nguồn nào đánh dấu Đã bán.
 """
 
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 from src.normalizer import sanitize_unit_code
 
 def count_filled_prices(row_values: List[Any], is_low_rise: bool) -> int:
@@ -24,14 +24,17 @@ def smart_upsert_pool(
     existing_pool_by_key: Dict[str, Dict[str, Any]],
     scanned_units: List[Dict[str, Any]],
     is_low_rise: bool,
-    today_str: str = ''
+    today_str: str = '',
+    successful_agencies: Optional[set] = None
 ) -> List[List[Any]]:
     """
     Hợp nhất danh sách vừa quét (scanned_units) vào kho dữ liệu hiện có (existing_pool_by_key).
-    BẢO TOÀN 100% dữ liệu cũ nếu nguồn quét bị gián đoạn.
+    BẢO TOÀN 100% dữ liệu cũ nếu đại lý gặp lỗi mạng/gián đoạn.
+    CẬP NHẬT hoặc XÓA các dòng không còn tồn tại từ các đại lý đã quét thành công.
     """
     status_col_idx = 31 if is_low_rise else 27
     issue_date_col_idx = 37 if is_low_rise else 30
+    agency_col_idx = 36 if is_low_rise else 29
 
     # 1. Deduplicate các căn vừa quét trong đợt này
     best_scanned_by_key = {}
@@ -48,26 +51,33 @@ def smart_upsert_pool(
             if item.get("status") == "Đã bán":
                 cur["status"] = "Đã bán"
                 cur["row_values"][status_col_idx] = "Đã bán"
+            elif item.get("status") == "Đang lock" and cur.get("status") != "Đã bán":
+                cur["status"] = "Đang lock"
+                cur["row_values"][status_col_idx] = "Đang lock"
 
             # Ưu tiên nguồn Quỹ Độc Quyền
             if item.get("is_exclusive") and not cur.get("is_exclusive"):
-                if cur.get("status") == "Đã bán":
-                    item["row_values"][status_col_idx] = "Đã bán"
-                    item["status"] = "Đã bán"
+                if cur.get("status") in ["Đã bán", "Đang lock"]:
+                    item["row_values"][status_col_idx] = cur.get("status")
+                    item["status"] = cur.get("status")
                 best_scanned_by_key[key] = item
             elif item.get("is_exclusive") == cur.get("is_exclusive"):
                 # Ưu tiên nguồn có nhiều cột giá chi tiết hơn
                 if count_filled_prices(item["row_values"], is_low_rise) > count_filled_prices(cur["row_values"], is_low_rise):
-                    if cur.get("status") == "Đã bán":
-                        item["row_values"][status_col_idx] = "Đã bán"
-                        item["status"] = "Đã bán"
+                    if cur.get("status") in ["Đã bán", "Đang lock"]:
+                        item["row_values"][status_col_idx] = cur.get("status")
+                        item["status"] = cur.get("status")
                     best_scanned_by_key[key] = item
 
     # 2. Khởi tạo kho dữ liệu tổng hợp dựa trên existing_pool
-    # Bất kỳ căn nào có trong existing_pool đều được giữ lại
+    # Bảo toàn các căn từ các đại lý gặp sự cố mạng (không nằm trong successful_agencies)
     master_pool = {}
     for key, data in existing_pool_by_key.items():
-        master_pool[key] = list(data.get("row_values", []))
+        row_vals = list(data.get("row_values", []))
+        old_agency = str(row_vals[agency_col_idx] if len(row_vals) > agency_col_idx else '').strip()
+        if successful_agencies and old_agency in successful_agencies:
+            continue
+        master_pool[key] = row_vals
 
     # 3. Cập nhật các căn vừa quét vào master_pool
     for key, item in best_scanned_by_key.items():

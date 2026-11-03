@@ -64,7 +64,7 @@ def sync_single_project(
             )
             logger.info(f"Tìm thấy {len(agency_links)} link đại lý cho phân khu {sub_tab}")
 
-            scanned = fetch_all_agencies_for_project(
+            scanned, successful_agencies = fetch_all_agencies_for_project(
                 sheets_service,
                 agency_links,
                 project_key,
@@ -75,7 +75,7 @@ def sync_single_project(
             )
 
             merged_rows = smart_upsert_pool(
-                existing_pool, scanned, is_low_rise=False, today_str=today_str
+                existing_pool, scanned, is_low_rise=False, today_str=today_str, successful_agencies=successful_agencies
             )
 
             if not dry_run:
@@ -94,7 +94,7 @@ def sync_single_project(
         )
         logger.info(f"Tìm thấy {len(agency_links)} link đại lý cho dự án {project_name}")
 
-        scanned = fetch_all_agencies_for_project(
+        scanned, successful_agencies = fetch_all_agencies_for_project(
             sheets_service,
             agency_links,
             project_key,
@@ -105,7 +105,7 @@ def sync_single_project(
         )
 
         merged_rows = smart_upsert_pool(
-            existing_pool, scanned, is_low_rise=is_low_rise, today_str=today_str
+            existing_pool, scanned, is_low_rise=is_low_rise, today_str=today_str, successful_agencies=successful_agencies
         )
 
         if not dry_run:

@@ -232,11 +232,14 @@ def parse_agency_grid_data(
     today_str: str,
     row_hidden_flags: Optional[List[bool]] = None,
     agency_url: str = "",
-    sub_tab: str = ""
+    sub_tab: str = "",
+    sheet_title: str = ""
 ) -> List[Dict[str, Any]]:
     """Phân tích dữ liệu ma trận ô (values, hyperlinks, màu sắc) thành danh sách căn hộ chuẩn hóa."""
     if not grid_rows or len(grid_rows) < 2:
         return []
+
+    is_tab_exclusive = bool(re.search(r'độc quyền|doc quyen|quỹ riêng|quy rieng|\bđq\b|\bdq\b|\bqr\b', f"{sheet_title} {sub_tab}", re.IGNORECASE))
 
     # Chuyển grid thành bảng chuỗi để nhận diện header
     text_table = []
@@ -355,7 +358,7 @@ def parse_agency_grid_data(
 
         # Nhóm quỹ: Độc quyền vs Quỹ chung
         raw_fund = get_val(row, cm['fund_group']).strip()
-        is_exclusive = bool(re.search(r'độc quyền|doc quyen|\bđq\b|\bdq\b|\bqr\b|quỹ riêng', raw_fund, re.IGNORECASE))
+        is_exclusive = is_tab_exclusive or bool(re.search(r'độc quyền|doc quyen|\bđq\b|\bdq\b|\bqr\b|quỹ riêng', raw_fund, re.IGNORECASE))
         fund_group = 'Độc quyền' if is_exclusive else 'Quỹ chung'
 
         # CSBH
@@ -551,7 +554,8 @@ def fetch_agency_from_drive_xlsx(
                 today_str=today_str,
                 row_hidden_flags=row_hidden_flags,
                 agency_url=agency_url,
-                sub_tab=sub_tab
+                sub_tab=sub_tab,
+                sheet_title=ws.title
             )
             all_units.extend(parsed)
 
@@ -669,7 +673,8 @@ def fetch_agency_from_google_sheet(
             today_str=today_str,
             row_hidden_flags=row_hidden_flags,
             agency_url=agency_url,
-            sub_tab=sub_tab
+            sub_tab=sub_tab,
+            sheet_title=chosen_sheet_title
         )
     except Exception as e:
         err_msg = str(e)

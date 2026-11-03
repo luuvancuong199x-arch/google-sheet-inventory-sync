@@ -98,3 +98,24 @@ def test_no_price_becomes_sold():
     by_key = {u["unit_key"]: u["status"] for u in parsed}
     assert by_key["LK-05"] == "Đã bán"
     assert by_key["LK-06"] == "Còn hàng"
+
+def test_tab_name_exclusive_detection():
+    headers = ["STT", "Phân khu", "Mã căn", "DT đất", "Giá bán"]
+    grid_rows = [
+        [{"formattedValue": h} for h in headers],
+        [{"formattedValue": "1"}, {"formattedValue": "Khu A"}, {"formattedValue": "LK-01"}, {"formattedValue": "100"}, {"formattedValue": "5000000000"}],
+    ]
+    parsed = parse_agency_grid_data(
+        grid_rows,
+        agency_name="TEST_AGENCY",
+        project_key="test_project",
+        is_low_rise=True,
+        existing_pool_keys=set(),
+        today_str="03/11/2026",
+        sheet_title="Giỏ Độc quyền"
+    )
+    assert len(parsed) == 1
+    assert parsed[0]["is_exclusive"] is True
+    # Column 32 in low-rise is 'Nhóm quỹ'
+    assert parsed[0]["row_values"][32] == "Độc quyền"
+

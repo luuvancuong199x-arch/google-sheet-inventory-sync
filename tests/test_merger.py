@@ -254,3 +254,39 @@ def test_smart_upsert_pool_expiry_and_daily_stats():
     assert ag_a_stats["expiring_soon"] == 1
     assert ag_a_stats["total_units"] == 3
 
+def test_exclusive_agency_available_cannot_be_overwritten_by_general_sold():
+    # Scenario: Agency A (Độc quyền) lists LK-20 as Còn hàng with valid price
+    # Agency B (Quỹ chung) lists LK-20 as Đã bán (e.g. hid the row or marked red)
+    # Result: LK-20 MUST belong to Agency A and MUST remain 'Còn hàng'!
+    scanned_units = [
+        # Agency B (Quỹ chung) scanned first
+        {
+            "unit_key": "LK-20",
+            "agency_name": "Agency B",
+            "is_exclusive": False,
+            "status": "Đã bán",
+            "row_values": [0, "Khu A", "LK-20", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Đã bán", "Quỹ chung"] + [""] * 3 + ["Agency B", "03/11/2026", "Còn 30 ngày"]
+        },
+        # Agency A (Độc quyền) scanned second
+        {
+            "unit_key": "LK-20",
+            "agency_name": "Agency A",
+            "is_exclusive": True,
+            "status": "Còn hàng",
+            "row_values": [0, "Khu A", "LK-20", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng", "Độc quyền"] + [""] * 3 + ["Agency A", "03/11/2026", "Còn 30 ngày"]
+        }
+    ]
+
+    final_rows = smart_upsert_pool({}, scanned_units, is_low_rise=True)
+    assert len(final_rows) == 1
+    row = final_rows[0]
+    # Unit code
+    assert row[2] == "LK-20"
+    # Status MUST remain Còn hàng
+    assert row[31] == "Còn hàng"
+    # Agency MUST be Agency A
+    assert row[36] == "Agency A"
+    # Nhóm quỹ MUST be Độc quyền
+    assert row[32] == "Độc quyền"
+
+

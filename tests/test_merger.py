@@ -36,13 +36,15 @@ def test_smart_upsert_sold_status_priority():
             "unit_key": "LK-05",
             "is_exclusive": False,
             "status": "Còn hàng",
-            "row_values": [0, "Khu A", "LK-05", "Thô", "LK"] + [""] * 26 + ["Còn hàng"] + [""] * 6
+            # Col 7 is gia_chua_vat = 5000000000
+            "row_values": [0, "Khu A", "LK-05", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng"] + [""] * 6
         },
         {
             "unit_key": "LK-05",
             "is_exclusive": True,
             "status": "Đã bán",
-            "row_values": [0, "Khu A", "LK-05", "Thô", "LK"] + [""] * 26 + ["Đã bán"] + [""] * 6
+            # Col 7 is gia_chua_vat = 5000000000
+            "row_values": [0, "Khu A", "LK-05", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Đã bán"] + [""] * 6
         }
     ]
 
@@ -50,6 +52,32 @@ def test_smart_upsert_sold_status_priority():
     assert len(final_rows) == 1
     # Status column is index 31 for low rise
     assert final_rows[0][31] == "Đã bán"
+
+def test_unpriced_agency_cannot_overwrite_priced_agency_with_sold():
+    existing_pool = {}
+    scanned_units = [
+        # Agency A has valid price (5 tỷ) and is Còn hàng
+        {
+            "unit_key": "LK-10",
+            "is_exclusive": False,
+            "status": "Còn hàng",
+            "row_values": [0, "Khu A", "LK-10", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng"] + [""] * 4 + ["Agency A", "03/11/2026"]
+        },
+        # Agency B lists LK-10 but has NO prices, so it got status 'Đã bán' due to missing price
+        {
+            "unit_key": "LK-10",
+            "is_exclusive": False,
+            "status": "Đã bán",
+            "row_values": [0, "Khu A", "LK-10", "Thô", "LK", 100, 200, ""] + [""] * 23 + ["Đã bán"] + [""] * 4 + ["Agency B", "03/11/2026"]
+        }
+    ]
+
+    final_rows = smart_upsert_pool(existing_pool, scanned_units, is_low_rise=True)
+    assert len(final_rows) == 1
+    # Must preserve Agency A's Còn hàng status and price!
+    assert final_rows[0][31] == "Còn hàng"
+    assert final_rows[0][7] == 5000000000
+    assert final_rows[0][36] == "Agency A"
 
 def test_smart_upsert_purges_obsolete_rows_from_successful_agency():
     # If Agency A had old phantom unit 'LK-99' in existing_pool,

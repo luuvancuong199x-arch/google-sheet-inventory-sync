@@ -318,7 +318,8 @@ def parse_agency_grid_data(
         gia_vay = normalize_price_to_vnd(get_val(row, cm['gia_vay']))
         gia_tttd = normalize_price_to_vnd(get_val(row, cm['gia_tttd']))
         gia_tts = normalize_price_to_vnd(get_val(row, cm['gia_tts']))
-        has_price = bool(gia_full or gia_chua_vat or gia_vay or gia_tttd or gia_tts)
+        # Yêu cầu: Chỉ cần có một trường 'Giá chưa gồm VAT' hoặc 'Giá gồm VAT và KPBT' là đủ điều kiện giá
+        has_valid_price = bool(gia_chua_vat or gia_full)
 
         # 4. Trạng thái căn từ văn bản nguồn
         raw_status = get_val(row, cm['status']).strip().lower()
@@ -329,22 +330,16 @@ def parse_agency_grid_data(
             any(kw in combined_status for kw in ['đã bán', 'da ban', 'sold', 'đã cọc', 'da coc', 'hết hàng', 'thu', 'thu hồi'])
         )
 
-        # Quy tắc xác định trạng thái (Ưu tiên màu sắc và ẩn dòng theo yêu cầu nghiệp vụ):
-        # - Bị bôi đỏ HOẶC dòng bị ẩn -> Tự động đặt trạng thái 'Đã bán' (ghi đè lên trạng thái của nguồn)
-        # - Bị bôi vàng -> Tự động đặt trạng thái 'Đang lock'
-        # - Không có bất kỳ trường giá nào -> Tự động đặt trạng thái 'Đã bán'
-        # - Nguồn ghi rõ đã bán -> 'Đã bán'
-        # - Nguồn ghi rõ lock -> 'Đang lock'
-        # - Hết tô màu đỏ/vàng, không ẩn dòng và có giá -> Tự động cập nhật lại là 'Còn hàng'
-        if is_red or is_row_hidden:
+        # Quy tắc xác định trạng thái:
+        # - Bị bôi đỏ HOẶC nguồn ghi rõ đã bán -> 'Đã bán'
+        # - Không có cả 'Giá chưa gồm VAT' lẫn 'Giá gồm VAT và KPBT' -> 'Đã bán'
+        # - Bị bôi vàng HOẶC nguồn ghi lock -> 'Đang lock'
+        # - Đủ điều kiện giá (có Giá chưa VAT hoặc Giá full), không đỏ, không bán -> Tự động cập nhật lại là 'Còn hàng'
+        if is_red or is_sold_signal:
             resolved_status = 'Đã bán'
-        elif is_yellow:
-            resolved_status = 'Đang lock'
-        elif not has_price:
+        elif not has_valid_price:
             resolved_status = 'Đã bán'
-        elif is_sold_signal:
-            resolved_status = 'Đã bán'
-        elif 'lock' in combined_status:
+        elif is_yellow or 'lock' in combined_status:
             resolved_status = 'Đang lock'
         else:
             resolved_status = 'Còn hàng'
@@ -398,7 +393,7 @@ def parse_agency_grid_data(
 
             # Loại bỏ các dòng trống không có cả diện tích lẫn giá
             has_area = bool(land_area or build_area)
-            if not has_area and not has_price:
+            if not has_area and not has_valid_price:
                 continue
 
             # Khớp chính xác 38 cột chuẩn Thấp tầng
@@ -427,7 +422,7 @@ def parse_agency_grid_data(
 
             # Loại bỏ các dòng trống không có cả diện tích lẫn giá
             has_area = bool(net_area or gross_area)
-            if not has_area and not has_price:
+            if not has_area and not has_valid_price:
                 continue
 
             # Khớp chính xác 31 cột chuẩn Cao tầng

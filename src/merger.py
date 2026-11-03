@@ -48,27 +48,52 @@ def smart_upsert_pool(
             best_scanned_by_key[key] = item
         else:
             cur = best_scanned_by_key[key]
-            # Nếu một trong các đại lý đánh dấu Đã bán -> Ghi nhận Đã bán
-            if item.get("status") == "Đã bán":
-                cur["status"] = "Đã bán"
-                cur["row_values"][status_col_idx] = "Đã bán"
-            elif item.get("status") == "Đang lock" and cur.get("status") != "Đã bán":
-                cur["status"] = "Đang lock"
-                cur["row_values"][status_col_idx] = "Đang lock"
+            cur_price_count = count_filled_prices(cur["row_values"], is_low_rise)
+            item_price_count = count_filled_prices(item["row_values"], is_low_rise)
 
-            # Ưu tiên nguồn Quỹ Độc Quyền
-            if item.get("is_exclusive") and not cur.get("is_exclusive"):
-                if cur.get("status") in ["Đã bán", "Đang lock"]:
-                    item["row_values"][status_col_idx] = cur.get("status")
-                    item["status"] = cur.get("status")
+            # Kiểm tra xem từng nguồn có giá hợp lệ (Giá chưa VAT hoặc Giá full) hay không
+            chua_idx = 7 if is_low_rise else 13
+            full_idx = 10 if is_low_rise else 14
+            cur_has_valid_price = bool(str(cur["row_values"][chua_idx] or '').strip() or str(cur["row_values"][full_idx] or '').strip())
+            item_has_valid_price = bool(str(item["row_values"][chua_idx] or '').strip() or str(item["row_values"][full_idx] or '').strip())
+
+            # 1. Nguồn có giá hợp lệ LUÔN được ưu tiên hơn nguồn không có giá
+            if item_has_valid_price and not cur_has_valid_price:
                 best_scanned_by_key[key] = item
-            elif item.get("is_exclusive") == cur.get("is_exclusive"):
-                # Ưu tiên nguồn có nhiều cột giá chi tiết hơn
-                if count_filled_prices(item["row_values"], is_low_rise) > count_filled_prices(cur["row_values"], is_low_rise):
-                    if cur.get("status") in ["Đã bán", "Đang lock"]:
-                        item["row_values"][status_col_idx] = cur.get("status")
-                        item["status"] = cur.get("status")
+            elif cur_has_valid_price and not item_has_valid_price:
+                pass  # Giữ nguyên nguồn có giá
+            else:
+                # Cả 2 đều có giá (hoặc cả 2 đều không có giá)
+                if item.get("is_exclusive") and not cur.get("is_exclusive"):
                     best_scanned_by_key[key] = item
+                elif not item.get("is_exclusive") and cur.get("is_exclusive"):
+                    pass
+                elif item_price_count > cur_price_count:
+                    best_scanned_by_key[key] = item
+
+            # 2. Xử lý trạng thái hợp nhất:
+            target = best_scanned_by_key[key]
+            target_has_price = (item_has_valid_price or cur_has_valid_price)
+
+            if not target_has_price:
+                # Không có bất kỳ nguồn nào có giá -> Đã bán
+                target["status"] = "Đã bán"
+                target["row_values"][status_col_idx] = "Đã bán"
+            else:
+                # Có giá: Chỉ nhận 'Đã bán' nếu nguồn CÓ GIÁ đánh dấu Đã bán (đỏ/sold text)
+                sold_from_priced = (
+                    (item.get("status") == "Đã bán" and item_has_valid_price) or
+                    (cur.get("status") == "Đã bán" and cur_has_valid_price)
+                )
+                if sold_from_priced:
+                    target["status"] = "Đã bán"
+                    target["row_values"][status_col_idx] = "Đã bán"
+                elif (item.get("status") == "Đang lock" or cur.get("status") == "Đang lock"):
+                    target["status"] = "Đang lock"
+                    target["row_values"][status_col_idx] = "Đang lock"
+                else:
+                    target["status"] = "Còn hàng"
+                    target["row_values"][status_col_idx] = "Còn hàng"
 
     # 2. Khởi tạo kho dữ liệu tổng hợp dựa trên existing_pool
     # Bảo toàn các căn từ các đại lý gặp sự cố mạng (không nằm trong successful_agencies)

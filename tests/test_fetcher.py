@@ -41,29 +41,25 @@ def test_color_classifier():
     assert classify_hex_color(None) == "neutral"
 
 def test_red_yellow_hidden_status_resolution():
-    headers = ["STT", "Phân khu", "Mã căn", "DT đất", "Giá bán"]
+    headers = ["STT", "Phân khu", "Mã căn", "DT đất", "Giá bán", "Trạng thái"]
     grid_rows = [
         [{"formattedValue": h} for h in headers],
         # Row 1: Red background -> Đã bán
-        [{"formattedValue": "1", "color_type": "red"}, {"formattedValue": "Khu A"}, {"formattedValue": "LK-01"}, {"formattedValue": "100"}, {"formattedValue": "5000000000"}],
+        [{"formattedValue": "1", "color_type": "red"}, {"formattedValue": "Khu A"}, {"formattedValue": "LK-01"}, {"formattedValue": "100"}, {"formattedValue": "5000000000"}, {"formattedValue": ""}],
         # Row 2: Yellow background -> Đang lock
-        [{"formattedValue": "2", "color_type": "yellow"}, {"formattedValue": "Khu A"}, {"formattedValue": "LK-02"}, {"formattedValue": "100"}, {"formattedValue": "5000000000"}],
-        # Row 3: Hidden row -> Đã bán
-        [{"formattedValue": "3"}, {"formattedValue": "Khu A"}, {"formattedValue": "LK-03"}, {"formattedValue": "100"}, {"formattedValue": "5000000000"}],
-        # Row 4: Normal visible -> Còn hàng
-        [{"formattedValue": "4"}, {"formattedValue": "Khu A"}, {"formattedValue": "LK-04"}, {"formattedValue": "100"}, {"formattedValue": "5000000000"}],
+        [{"formattedValue": "2", "color_type": "yellow"}, {"formattedValue": "Khu A"}, {"formattedValue": "LK-02"}, {"formattedValue": "100"}, {"formattedValue": "5000000000"}, {"formattedValue": ""}],
+        # Row 3: Sold text -> Đã bán
+        [{"formattedValue": "3"}, {"formattedValue": "Khu A"}, {"formattedValue": "LK-03"}, {"formattedValue": "100"}, {"formattedValue": "5000000000"}, {"formattedValue": "Đã bán"}],
+        # Row 4: Normal visible có giá -> Còn hàng
+        [{"formattedValue": "4"}, {"formattedValue": "Khu A"}, {"formattedValue": "LK-04"}, {"formattedValue": "100"}, {"formattedValue": "5000000000"}, {"formattedValue": ""}],
     ]
-    # Row hidden flags for rows 0, 1, 2, 3, 4
-    row_hidden_flags = [False, False, False, True, False]
-
     parsed = parse_agency_grid_data(
         grid_rows,
         agency_name="TEST_AGENCY",
         project_key="test_project",
         is_low_rise=True,
         existing_pool_keys=set(),
-        today_str="03/11/2026",
-        row_hidden_flags=row_hidden_flags
+        today_str="03/11/2026"
     )
 
     by_key = {u["unit_key"]: u["status"] for u in parsed}

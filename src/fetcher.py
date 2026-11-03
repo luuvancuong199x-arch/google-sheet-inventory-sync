@@ -330,17 +330,20 @@ def parse_agency_grid_data(
             in_sold_section or
             any(kw in combined_status for kw in ['đã bán', 'da ban', 'sold', 'đã cọc', 'da coc', 'hết hàng', 'thu', 'thu hồi'])
         )
+        is_lock_signal = bool(
+            re.search(r'\block|đang lock|dang lock|giữ chỗ|giu cho', combined_status, re.IGNORECASE)
+        )
 
-        # Quy tắc xác định trạng thái:
-        # - Bị bôi đỏ HOẶC nguồn ghi rõ đã bán -> 'Đã bán'
+        # Quy tắc xác định trạng thái theo yêu cầu:
+        # - Bị bôi đỏ HOẶC dòng bị ẩn HOẶC nguồn ghi rõ đã bán -> 'Đã bán'
         # - Không có cả 'Giá chưa gồm VAT' lẫn 'Giá gồm VAT và KPBT' -> 'Đã bán'
-        # - Bị bôi vàng HOẶC nguồn ghi lock -> 'Đang lock'
-        # - Đủ điều kiện giá (có Giá chưa VAT hoặc Giá full), không đỏ, không bán -> Tự động cập nhật lại là 'Còn hàng'
-        if is_red or is_sold_signal:
+        # - Chỉ nhận 'Đang lock' nếu nguồn ghi rõ trạng thái lock trong văn bản (KHÔNG xác định dựa trên màu ô)
+        # - Không xác định được lock cụ thể -> Mặc định là 'Còn hàng'
+        if is_red or is_row_hidden or is_sold_signal:
             resolved_status = 'Đã bán'
         elif not has_valid_price:
             resolved_status = 'Đã bán'
-        elif is_yellow or 'lock' in combined_status:
+        elif is_lock_signal:
             resolved_status = 'Đang lock'
         else:
             resolved_status = 'Còn hàng'

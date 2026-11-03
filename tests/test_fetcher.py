@@ -46,27 +46,37 @@ def test_red_yellow_hidden_status_resolution():
         [{"formattedValue": h} for h in headers],
         # Row 1: Red background -> Đã bán
         [{"formattedValue": "1", "color_type": "red"}, {"formattedValue": "Khu A"}, {"formattedValue": "LK-01"}, {"formattedValue": "100"}, {"formattedValue": "5000000000"}, {"formattedValue": ""}],
-        # Row 2: Yellow background -> Đang lock
+        # Row 2: Yellow background nhưng không có chữ lock -> Mặc định 'Còn hàng' (không tự nhận lock theo màu vàng nữa)
         [{"formattedValue": "2", "color_type": "yellow"}, {"formattedValue": "Khu A"}, {"formattedValue": "LK-02"}, {"formattedValue": "100"}, {"formattedValue": "5000000000"}, {"formattedValue": ""}],
         # Row 3: Sold text -> Đã bán
         [{"formattedValue": "3"}, {"formattedValue": "Khu A"}, {"formattedValue": "LK-03"}, {"formattedValue": "100"}, {"formattedValue": "5000000000"}, {"formattedValue": "Đã bán"}],
         # Row 4: Normal visible có giá -> Còn hàng
         [{"formattedValue": "4"}, {"formattedValue": "Khu A"}, {"formattedValue": "LK-04"}, {"formattedValue": "100"}, {"formattedValue": "5000000000"}, {"formattedValue": ""}],
+        # Row 5: Nguồn ghi rõ lock -> Đang lock
+        [{"formattedValue": "5"}, {"formattedValue": "Khu A"}, {"formattedValue": "LK-05"}, {"formattedValue": "100"}, {"formattedValue": "5000000000"}, {"formattedValue": "Đang lock"}],
+        # Row 6: Dòng bị ẩn -> Đã bán
+        [{"formattedValue": "6"}, {"formattedValue": "Khu A"}, {"formattedValue": "LK-06"}, {"formattedValue": "100"}, {"formattedValue": "5000000000"}, {"formattedValue": ""}],
     ]
+    # Row 6 (index 6 trong grid_rows) bị ẩn
+    row_hidden_flags = [False, False, False, False, False, False, True]
+
     parsed = parse_agency_grid_data(
         grid_rows,
         agency_name="TEST_AGENCY",
         project_key="test_project",
         is_low_rise=True,
         existing_pool_keys=set(),
-        today_str="03/11/2026"
+        today_str="03/11/2026",
+        row_hidden_flags=row_hidden_flags
     )
 
     by_key = {u["unit_key"]: u["status"] for u in parsed}
     assert by_key["LK-01"] == "Đã bán"
-    assert by_key["LK-02"] == "Đang lock"
+    assert by_key["LK-02"] == "Còn hàng"  # Vàng không còn là lock
     assert by_key["LK-03"] == "Đã bán"
     assert by_key["LK-04"] == "Còn hàng"
+    assert by_key["LK-05"] == "Đang lock"
+    assert by_key["LK-06"] == "Đã bán"  # Ẩn dòng là Đã bán
 
 def test_no_price_becomes_sold():
     headers = ["STT", "Phân khu", "Mã căn", "DT đất", "Giá bán"]

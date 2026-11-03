@@ -208,7 +208,7 @@ def parse_agency_grid_data(
             continue
         if re.search(r'^(phân\s*khu|bảng\s*hàng|đơn\s*lập|song\s*lập|liền\s*kề|biệt\s*thự|shophouse|tổng\s*cộng|căn\s*hộ|ghi\s*chú|demo|test|đlmc|dlmc|lp)$', unit_code, re.IGNORECASE):
             continue
-        if re.search(r'^(phân\s*khu|bảng\s*hàng|đơn\s*lập|song\s*lập|liền\s*kề|biệt\s*thự|shophouse|tổng\s*cộng|căn\s*hộ|ghi\s*chú|demo|test|đlmc|dlmc|lp)', raw_unit, re.IGNORECASE):
+        if re.search(r'^(phân\s*khu|bảng\s*hàng|đơn\s*lập|song\s*lập|liền\s*kề|biệt\s*thự|shophouse|tổng\s*cộng|căn\s*hộ|ghi\s*chú|demo|test)$', raw_unit, re.IGNORECASE):
             continue
 
         raw_zone = get_val(row, cm['zone']).strip()
@@ -381,24 +381,37 @@ def fetch_agency_from_drive_xlsx(
         fh.seek(0)
         wb = openpyxl.load_workbook(fh, data_only=True)
 
-        ws = wb.active or wb.worksheets[0]
-        grid_rows = []
-        for r in ws.iter_rows():
-            row_cells = []
-            for c in r:
-                val = str(c.value or '') if c.value is not None else ''
-                link = c.hyperlink.target if getattr(c, 'hyperlink', None) else ''
-                row_cells.append({'formattedValue': val, 'hyperlink': link})
-            grid_rows.append(row_cells)
-
-        return parse_agency_grid_data(
-            grid_rows,
-            agency_name=agency_name,
-            project_key=project_key,
-            is_low_rise=is_low_rise,
-            existing_pool_keys=existing_pool_keys,
-            today_str=today_str
+        skip_rx = re.compile(
+            r'(stk|tài khoản|tai khoan|giỏ bank|gio bank|đầu mối|dau moi|thông số|thong so|'
+            r'giải chấp|giai chap|bàn giao|ban giao|csbh|đã bán|da ban|check ẩn|check an|'
+            r'quỹ ẩn|quy an|quỹ cũ|quy cu|lưu|game|tạo tk|quy định|quy dinh|hướng dẫn|huong dan)',
+            re.IGNORECASE
         )
+
+        all_units = []
+        for ws in wb.worksheets:
+            if skip_rx.search(ws.title):
+                continue
+            grid_rows = []
+            for r in ws.iter_rows():
+                row_cells = []
+                for c in r:
+                    val = str(c.value or '') if c.value is not None else ''
+                    link = c.hyperlink.target if getattr(c, 'hyperlink', None) else ''
+                    row_cells.append({'formattedValue': val, 'hyperlink': link})
+                grid_rows.append(row_cells)
+
+            parsed = parse_agency_grid_data(
+                grid_rows,
+                agency_name=agency_name,
+                project_key=project_key,
+                is_low_rise=is_low_rise,
+                existing_pool_keys=existing_pool_keys,
+                today_str=today_str
+            )
+            all_units.extend(parsed)
+
+        return all_units
     except Exception as e:
         err_msg = str(e)
         if "fileNotDownloadable" in err_msg or "Use Export with Docs Editors" in err_msg:

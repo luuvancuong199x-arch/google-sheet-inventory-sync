@@ -106,8 +106,8 @@ I:\Google-sheet\
 ### Task 5: Module Chuẩn Hóa Dữ Liệu Toàn Diện (`src/normalizer.py`)
 Khắc phục triệt để các lỗi nghiệp vụ từ kịch bản cũ:
 - [x] **Chuẩn hóa Mã căn & Trục căn (High-Rise):**
-  - Giữ nguyên mã trục căn (ví dụ `04`, `07`, `13`, `14` giữ nguyên là `04, 07, 13, 14`, **không đổi sang 05A, 08A, 12A**).
-  - Chỉ áp dụng bảng né số tầng thương mại cho trường `floor`.
+  - Tuân thủ Hệ mã thương mại: Căn số/Trục căn và Tầng đều quy đổi theo quy tắc nghiệp vụ (`04/4 -> 05A`, `07/7 -> 08A`, `13 -> 12A`, `14 -> 15A`).
+  - Hỗ trợ đầy đủ các dạng mã căn cao tầng (dấu gạch ngang, 2 dấu chấm Q9 `S6.0619.06`, mã `BE130.04`, mã chấm `P2.2602`).
 - [x] **Chuẩn hóa Diện tích (Area):**
   - Nhận diện đúng số thực thập phân `.` và `,`.
   - Cross-check diện tích thông thủy vs tim tường cho cao tầng ($a_1 \le a_2$).

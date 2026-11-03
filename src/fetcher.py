@@ -621,7 +621,9 @@ def fetch_agency_from_google_sheet(
         row_hidden_flags = []
         for r_idx, r_data in enumerate(grid_data):
             r_meta = row_metadata[r_idx] if r_idx < len(row_metadata) else {}
-            is_h = bool(r_meta.get('hiddenByUser') or r_meta.get('hiddenByFilter'))
+            # Chỉ coi là dòng bị ẩn khi chủ sở hữu cố tình ẩn hàng (hiddenByUser),
+            # không tính ẩn do bộ lọc tạm thời của người xem (hiddenByFilter)
+            is_h = bool(r_meta.get('hiddenByUser'))
             row_hidden_flags.append(is_h)
 
             cells = r_data.get('values', [])

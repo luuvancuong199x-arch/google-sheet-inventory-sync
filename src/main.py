@@ -115,6 +115,18 @@ def sync_single_project(
         total_units_updated = len(merged_rows)
         logger.info(f"Đã cập nhật {total_units_updated} căn vào tab '{target_tab_name}'")
 
+    if not dry_run:
+        try:
+            from src.agency_directory import update_project_agency_directory
+            update_project_agency_directory(
+                sheets_service=sheets_service,
+                project_key=project_key,
+                diagnostic_lookup={},
+                sync_stats_lookup=None
+            )
+        except Exception as e_dir:
+            logger.warning(f"Lỗi khi cập nhật Danh mục Đại lý cho {project_name}: {e_dir}")
+
     duration = time.time() - start_time
     logger.info(f"✅ Hoàn tất dự án {project_name} trong {duration:.2f} giây! (Tổng số căn: {total_units_updated})")
     return {

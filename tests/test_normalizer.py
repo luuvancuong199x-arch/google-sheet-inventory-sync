@@ -80,3 +80,24 @@ def test_normalize_types():
     assert normalize_low_rise_type("Biệt thự song lập", "") == "BTSL"
     assert normalize_high_rise_type("2BR+1") == "2PN+"
     assert normalize_high_rise_type("Studio") == "STUDIO"
+
+def test_infer_grounded_zone():
+    from src.normalizer import infer_grounded_zone
+    # VX -> Vịnh Xanh (yêu cầu người dùng)
+    assert infer_grounded_zone("VX2-46", "OCP2-3") == "Vịnh Xanh"
+    assert infer_grounded_zone("VX4-157", "OCP2-3", existing_zone="Vịnh Xuân 4") == "Vịnh Xanh 4"
+    assert infer_grounded_zone("KĐ7-117", "OCP2-3") == "Kinh Đô Ánh Sáng"
+    assert infer_grounded_zone("BM3-08", "HLX") == "Bình Minh"
+    assert infer_grounded_zone("P1.1101", "MIK OCP") == "The Pavilion"
+    assert infer_grounded_zone("C5L2-03-09", "MAS CAO TẦNG", sub_tab="MGC") == "Masteri Grand Coast"
+    # Không sáng tạo giá trị mới khi không có căn cứ
+    assert infer_grounded_zone("XYZ-999", "OCP2-3") == ""
+
+def test_infer_grounded_low_rise_type():
+    from src.normalizer import infer_grounded_low_rise_type
+    assert infer_grounded_low_rise_type("LK2-05", "") == "LK"
+    assert infer_grounded_low_rise_type("SH-10", "") == "SH"
+    assert infer_grounded_low_rise_type("BTSL-01", "") == "BTSL"
+    assert infer_grounded_low_rise_type("BTĐL-03", "") == "BTĐL"
+    assert infer_grounded_low_rise_type("UNKNOWN-01", "") == ""
+

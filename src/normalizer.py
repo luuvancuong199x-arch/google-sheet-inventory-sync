@@ -456,3 +456,125 @@ def normalize_high_rise_type(raw_val: Any) -> str:
     if re.match(r'^3PN\+1', s):
         return '3PN+'
     return s
+
+# Bảng ánh xạ phân khu dựa trên dữ liệu thực tế có sẵn từ các nguồn chính thống của từng dự án
+GROUNDED_ZONE_MAP = {
+    'OCP2-3': {
+        'VX': 'Vịnh Xanh',  # Theo chỉ đạo của người dùng: VX -> Vịnh Xanh
+        'KĐ': 'Kinh Đô Ánh Sáng',
+        'PB': 'Phố Biển',
+        'NT': 'Ngọc Trai',
+        'AD': 'Ánh Dương',
+        'SH': 'San Hô',
+        'ĐD': 'Đảo Dừa',
+        'CL': 'Chà Là',
+        'SB': 'Sao Biển',
+        'VTĐ': 'Vịnh Thiên Đường',
+        'HA': 'Hải Âu',
+        'TĐ': 'Thời Đại'
+    },
+    'làng vân': {
+        'VM': 'Vịnh Mây',
+        'BV': 'Bạch Vân',
+        'VU': 'Bạch Vân',
+        'TK': 'Bạch Vân',
+        'VK': 'Bạch Vân',
+        'LN': 'Đảo Ngọc',
+        'SV': 'Đảo Ngọc',
+        'AN': 'Đảo Ngọc',
+        'LV': 'Đảo Ngọc',
+        'HC': 'Đảo Ngọc',
+        'LP': 'Đảo Ngọc',
+        'ĐLMC': 'Đảo Ngọc'
+    },
+    'HLX': {
+        'BM': 'Bình Minh',
+        'NĐ': 'Ngọc Đảo',
+        'HL': 'Hoàng Lâu'
+    },
+    'MIK OCP': {
+        'P1': 'The Pavilion',
+        'P2': 'The Pavilion',
+        'P3': 'The Pavilion',
+        'P4': 'The Pavilion',
+        'Z1': 'The Zurich',
+        'Z2': 'The Zurich',
+        'M1': 'The Miami',
+        'M2': 'The Miami',
+        'M3': 'The Miami'
+    },
+    'MAS CAO TẦNG': {
+        'MGC': 'Masteri Grand Coast',
+        'MEL': 'Lumiere EverGreen',
+        'HSG': 'The Senique',
+        'LEP': 'Lumiere SpringBay'
+    }
+}
+
+def infer_grounded_zone(unit_code: str, project_key: str, existing_zone: str = '', sub_tab: str = '') -> str:
+    """
+    Suy luận phân khu dựa trên dữ liệu thực tế có sẵn khi nguồn bỏ trống.
+    Không tự sáng tạo giá trị mới, bảo toàn 100% dữ liệu gốc nếu đã có.
+    """
+    zone = str(existing_zone or '').strip()
+
+    # 1. Nếu đã có dữ liệu phân khu, chuẩn hóa trường hợp Vịnh Xuân -> Vịnh Xanh theo chỉ đạo
+    if zone:
+        if re.search(r'vịnh xuân|vinh xuan', zone, re.IGNORECASE):
+            return re.sub(r'vịnh xuân|vinh xuan', 'Vịnh Xanh', zone, flags=re.IGNORECASE)
+        return zone
+
+    # 2. Xử lý cho dự án MAS CAO TẦNG dựa trên sub-tab
+    if project_key == 'MAS CAO TẦNG' and sub_tab:
+        mas_map = GROUNDED_ZONE_MAP.get('MAS CAO TẦNG', {})
+        if sub_tab.upper() in mas_map:
+            return mas_map[sub_tab.upper()]
+
+    # 3. Tra cứu theo tiền tố mã căn cho các dự án đã có dữ liệu thực tế
+    p_map = GROUNDED_ZONE_MAP.get(project_key)
+    if not p_map or not unit_code:
+        return ''
+
+    clean_code = sanitize_unit_code(unit_code).upper()
+
+    # Với MIK OCP (mã dạng P1.1101, Z1.1502, M2.2005)
+    if project_key == 'MIK OCP':
+        m_tw = re.match(r'^([PZM]\d+)', clean_code)
+        if m_tw and m_tw.group(1) in p_map:
+            return p_map[m_tw.group(1)]
+
+    # Tìm tiền tố chữ cái (có thể có dấu tiếng Việt như KĐ, ĐD, VTĐ)
+    # Ví dụ: VX2-46 -> VX, KĐ7-117 -> KĐ, VTĐ8-01 -> VTĐ, BM3-08 -> BM
+    m_pref = re.match(r'^([A-ZĐĂÂÔƠƯ]+)', clean_code)
+    if m_pref:
+        pref = m_pref.group(1)
+        if pref in p_map:
+            return p_map[pref]
+        for k in sorted(p_map.keys(), key=len, reverse=True):
+            if pref.startswith(k) or pref.endswith(k):
+                return p_map[k]
+
+    return ''
+
+def infer_grounded_low_rise_type(unit_code: str, raw_type: str = '', raw_tcbg: str = '') -> str:
+    """Suy luận loại hình thấp tầng dựa trên dữ liệu có sẵn từ cột nguồn hoặc tiền tố mã căn."""
+    norm = normalize_low_rise_type(raw_type, raw_tcbg)
+    if norm:
+        return norm
+    if not unit_code:
+        return ''
+    u = unit_code.strip().upper()
+    if re.match(r'^(LK|LIENKE|LIỀNKỀ)', u):
+        return 'LK'
+    if re.match(r'^(SH|SHOP|SHOPHOUSE)', u):
+        return 'SH'
+    if re.match(r'^(BTĐL|BTDL)', u):
+        return 'BTĐL'
+    if re.match(r'^(BTSL)', u):
+        return 'BTSL'
+    if re.match(r'^(BT|BIETTHU|BIỆTTHỰ)', u):
+        return 'BT'
+    if re.match(r'^(TMDV)', u):
+        return 'TMDV'
+    return ''
+

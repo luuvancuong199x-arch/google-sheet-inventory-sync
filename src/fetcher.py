@@ -22,7 +22,9 @@ from src.normalizer import (
     resolve_unit_media_links,
     normalize_csbh_date,
     normalize_low_rise_type,
-    normalize_high_rise_type
+    normalize_high_rise_type,
+    infer_grounded_zone,
+    infer_grounded_low_rise_type
 )
 
 logger = logging.getLogger(__name__)
@@ -228,7 +230,8 @@ def parse_agency_grid_data(
     existing_pool_keys: set,
     today_str: str,
     row_hidden_flags: Optional[List[bool]] = None,
-    agency_url: str = ""
+    agency_url: str = "",
+    sub_tab: str = ""
 ) -> List[Dict[str, Any]]:
     """Phân tích dữ liệu ma trận ô (values, hyperlinks, màu sắc) thành danh sách căn hộ chuẩn hóa."""
     if not grid_rows or len(grid_rows) < 2:
@@ -292,6 +295,7 @@ def parse_agency_grid_data(
             continue
 
         raw_zone = get_val(row, cm['zone']).strip()
+        resolved_zone = infer_grounded_zone(unit_code, project_key, raw_zone, sub_tab)
         tower = get_val(row, cm['tower']).strip()
         floor = get_val(row, cm['floor']).strip()
         axis = get_val(row, cm['axis']).strip()
@@ -384,7 +388,7 @@ def parse_agency_grid_data(
         if is_low_rise:
             raw_tcbg = get_val(row, cm['tcbg']).strip()
             raw_type = get_val(row, cm['unit_type']).strip()
-            unit_type = normalize_low_rise_type(raw_type, raw_tcbg)
+            unit_type = infer_grounded_low_rise_type(unit_code, raw_type, raw_tcbg)
             land_area = sanitize_single_area(get_val(row, cm['land_area']), is_low_rise=True)
             build_area = sanitize_single_area(get_val(row, cm['build_area']), is_low_rise=True, is_construction=True)
 
@@ -405,7 +409,7 @@ def parse_agency_grid_data(
 
             # Khớp chính xác 38 cột chuẩn Thấp tầng
             row_values = [
-                0, raw_zone, unit_code, raw_tcbg, unit_type, land_area, build_area,
+                0, resolved_zone, unit_code, raw_tcbg, unit_type, land_area, build_area,
                 gia_chua_vat, vat_tong, kpbt, gia_full,
                 '', '', '', '',  # Xây trc VAT, VAT, KPBT, Tổng Xây
                 '', '', '', '',  # Đất trc VAT, VAT, KPBT, Tổng Đất
@@ -437,7 +441,7 @@ def parse_agency_grid_data(
 
             # Khớp chính xác 31 cột chuẩn Cao tầng
             row_values = [
-                0, unit_code, raw_zone, unit_type, direction, tower, floor, axis,
+                0, unit_code, resolved_zone, unit_type, direction, tower, floor, axis,
                 net_area, gross_area, bedrooms, wc,
                 kpbt, gia_chua_vat, gia_full,
                 gia_vay, gia_tttd, gia_tts, don_gia_m2,
@@ -467,7 +471,8 @@ def fetch_agency_from_drive_xlsx(
     existing_pool_keys: set,
     today_str: str,
     sheets_service: Any = None,
-    agency_url: str = ""
+    agency_url: str = "",
+    sub_tab: str = ""
 ) -> List[Dict[str, Any]]:
     """Tải và phân tích bảng hàng đại lý dạng file Excel (.xlsx) lưu trên Google Drive."""
     try:
@@ -539,7 +544,8 @@ def fetch_agency_from_drive_xlsx(
                 existing_pool_keys=existing_pool_keys,
                 today_str=today_str,
                 row_hidden_flags=row_hidden_flags,
-                agency_url=agency_url
+                agency_url=agency_url,
+                sub_tab=sub_tab
             )
             all_units.extend(parsed)
 
@@ -557,7 +563,8 @@ def fetch_agency_from_drive_xlsx(
                 is_low_rise=is_low_rise,
                 existing_pool_keys=existing_pool_keys,
                 today_str=today_str,
-                agency_url=agency_url
+                agency_url=agency_url,
+                sub_tab=sub_tab
             )
         logger.warning(f"Lỗi khi đọc bảng hàng Excel .xlsx {agency_name} ({file_id}): {e}")
         return []
@@ -571,7 +578,8 @@ def fetch_agency_from_google_sheet(
     is_low_rise: bool,
     existing_pool_keys: set,
     today_str: str,
-    agency_url: str = ""
+    agency_url: str = "",
+    sub_tab: str = ""
 ) -> List[Dict[str, Any]]:
     """Tải và phân tích bảng hàng đại lý dạng Google Sheets bản địa."""
     service = _get_thread_sheets_service(sheets_service)
@@ -654,7 +662,8 @@ def fetch_agency_from_google_sheet(
             existing_pool_keys=existing_pool_keys,
             today_str=today_str,
             row_hidden_flags=row_hidden_flags,
-            agency_url=agency_url
+            agency_url=agency_url,
+            sub_tab=sub_tab
         )
     except Exception as e:
         err_msg = str(e)
@@ -668,7 +677,8 @@ def fetch_agency_from_google_sheet(
                 existing_pool_keys=existing_pool_keys,
                 today_str=today_str,
                 sheets_service=service,
-                agency_url=agency_url
+                agency_url=agency_url,
+                sub_tab=sub_tab
             )
         logger.warning(f"Lỗi khi đọc bảng hàng đại lý {agency_name} ({file_id}): {e}")
         return []
@@ -692,6 +702,7 @@ def fetch_single_agency(
         elif not agency_url:
             agency_url = f"https://docs.google.com/spreadsheets/d/{file_id}/edit"
 
+    sub_tab = agency_info.get("sub", "")
     if agency_info.get("is_excel"):
         return fetch_agency_from_drive_xlsx(
             file_id=file_id,
@@ -702,7 +713,8 @@ def fetch_single_agency(
             existing_pool_keys=existing_pool_keys,
             today_str=today_str,
             sheets_service=sheets_service,
-            agency_url=agency_url
+            agency_url=agency_url,
+            sub_tab=sub_tab
         )
 
     return fetch_agency_from_google_sheet(
@@ -714,7 +726,8 @@ def fetch_single_agency(
         is_low_rise=is_low_rise,
         existing_pool_keys=existing_pool_keys,
         today_str=today_str,
-        agency_url=agency_url
+        agency_url=agency_url,
+        sub_tab=sub_tab
     )
 
 def fetch_all_agencies_for_project(

@@ -308,8 +308,8 @@ def parse_agency_grid_data(
         # 1. Kiểm tra dòng bị ẩn (hiddenByUser hoặc hiddenByFilter hoặc ws.row_dimensions.hidden)
         is_row_hidden = bool(row_hidden_flags and r < len(row_hidden_flags) and row_hidden_flags[r])
 
-        # 2. Kiểm tra màu nền của dòng (quét các cột chính và các ô đầu dòng)
-        row_colors = [c.get('color_type', 'neutral') for c in row[:15]]
+        # 2. Kiểm tra màu nền của dòng (quét toàn bộ các ô trong dòng)
+        row_colors = [c.get('color_type', 'neutral') for c in row if isinstance(c, dict)]
         is_red = ('red' in row_colors)
         is_yellow = ('yellow' in row_colors)
 
@@ -608,7 +608,7 @@ def fetch_agency_from_google_sheet(
             service.spreadsheets().get(
                 spreadsheetId=file_id,
                 ranges=[f"'{chosen_sheet_title}'!A1:AZ2000"],
-                fields="sheets(data(rowData(values(formattedValue,hyperlink,effectiveFormat.backgroundColor)),rowMetadata(hiddenByUser,hiddenByFilter)),properties(title,sheetId))"
+                fields="sheets(data(rowData(values(formattedValue,hyperlink,effectiveFormat.backgroundColor,userEnteredFormat.backgroundColor)),rowMetadata(hiddenByUser)),properties(title,sheetId))"
             )
         )
 
@@ -631,11 +631,14 @@ def fetch_agency_from_google_sheet(
             for c in cells:
                 val = c.get('formattedValue', '')
                 link = c.get('hyperlink', '')
-                bg = c.get('effectiveFormat', {}).get('backgroundColor', {})
-                r_c = bg.get('red', 1.0)
-                g_c = bg.get('green', 1.0)
-                b_c = bg.get('blue', 1.0)
-                color_type = classify_rgb_color(r_c, g_c, b_c)
+                bg = c.get('effectiveFormat', {}).get('backgroundColor') or c.get('userEnteredFormat', {}).get('backgroundColor')
+                if not bg:
+                    color_type = 'neutral'
+                else:
+                    r_c = float(bg.get('red', 0.0))
+                    g_c = float(bg.get('green', 0.0))
+                    b_c = float(bg.get('blue', 0.0))
+                    color_type = classify_rgb_color(r_c, g_c, b_c)
                 parsed_cells.append({
                     'formattedValue': val,
                     'hyperlink': link,

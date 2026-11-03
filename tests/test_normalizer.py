@@ -1,0 +1,76 @@
+import pytest
+from src.normalizer import (
+    sanitize_unit_code,
+    normalize_high_rise_unit_floor_axis,
+    sanitize_single_area,
+    normalize_price_to_vnd,
+    normalize_numeric_or_null,
+    repair_drive_url,
+    resolve_unit_media_links,
+    normalize_csbh_date,
+    normalize_low_rise_type,
+    normalize_high_rise_type
+)
+
+def test_sanitize_unit_code():
+    assert sanitize_unit_code("✨LK-05 (Góc)") == "LK-05"
+    assert sanitize_unit_code("BT-01: Căn đẹp") == "BT-01"
+    assert sanitize_unit_code("  s6.0619.06*  ") == "S6.0619.06"
+    assert sanitize_unit_code("SH-10 Xẻ khe") == "SH-10"
+
+def test_normalize_high_rise_unit_floor_axis_preserves_axis():
+    # Axis 04 must NOT be converted to 05A!
+    res = normalize_high_rise_unit_floor_axis("M1-10-04", raw_tower="", raw_floor="10", raw_axis="04")
+    assert res["axis"] == "04"
+    assert res["tower"] == "M1"
+    assert res["floor"] == "10"
+    assert res["unit_code"] == "M1-10-04"
+
+    # Axis 07 must NOT be converted to 08A!
+    res2 = normalize_high_rise_unit_floor_axis("A1-04-07", raw_tower="", raw_floor="4", raw_axis="7")
+    assert res2["floor"] == "05A"  # Floor 4 converts to 05A
+    assert res2["axis"] == "07"   # Axis 7 converts to 07 (NOT 08A!)
+
+def test_wc_decimal_preservation():
+    # Crucial bug fix: 2.5 WC must NOT become 25 WC!
+    assert normalize_numeric_or_null("2.5", is_integer=False) == 2.5
+    assert normalize_numeric_or_null("1,5", is_integer=False) == 1.5
+    assert normalize_numeric_or_null(2, is_integer=True) == 2
+    assert normalize_numeric_or_null("", is_integer=False) == ""
+
+def test_normalize_price_to_vnd():
+    # Millions vs Billions
+    assert normalize_price_to_vnd(8.5, unit_hint="TOTAL") == 8_500_000_000
+    assert normalize_price_to_vnd("8.5 tỷ", unit_hint="TOTAL") == 8_500_000_000
+    assert normalize_price_to_vnd("850 triệu", unit_hint="TOTAL") == 850_000_000
+    assert normalize_price_to_vnd("1.2 tỷ", unit_hint="TOTAL") == 1_200_000_000
+    # Full price in VND
+    assert normalize_price_to_vnd(9_405_703_811, unit_hint="TOTAL") == 9_405_703_811
+
+def test_repair_drive_url():
+    assert repair_drive_url("https://drivegooglecom/drive/folders/123") == "https://drive.google.com/drive/folders/123"
+    assert repair_drive_url("https://docsgooglecom/spreadsheets/d/456") == "https://docs.google.com/spreadsheets/d/456"
+
+def test_resolve_unit_media_links_preserves_folder():
+    # Crucial bug fix: Drive folder must NOT be dropped!
+    folder_url = "https://drive.google.com/drive/folders/1abcDEFghijKLMN"
+    res = resolve_unit_media_links(chican_urls=[folder_url], ptg_urls=[])
+    assert res["anh_chi_can"] == folder_url
+    assert res["anh_ptg"] == ""
+    assert res["anh_chi_can_ptg"] == folder_url
+
+def test_normalize_csbh_date():
+    # Valid date
+    assert normalize_csbh_date("23/12/2025.")["csbh_date"] == "23/12/2025"
+    assert normalize_csbh_date("04/05", default_year=2026)["csbh_date"] == "04/05/2026"
+    
+    # Invalid date (31/02) must be rejected!
+    res_invalid = normalize_csbh_date("31/02/2026")
+    assert res_invalid["csbh_date"] == ""  # Rejected, not a valid date!
+
+def test_normalize_types():
+    assert normalize_low_rise_type("Liền kề", "") == "LK"
+    assert normalize_low_rise_type("Shophouse", "") == "SH"
+    assert normalize_low_rise_type("Biệt thự song lập", "") == "BTSL"
+    assert normalize_high_rise_type("2BR+1") == "2PN+"
+    assert normalize_high_rise_type("Studio") == "STUDIO"

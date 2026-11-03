@@ -1,0 +1,34 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C credentials & API keys (TUYỆT ĐỐI BẢO MẬT TRÊN REPO PUBLIC)
+*.json
+!package.json
+!tsconfig.json
+credentials/
+.env
+.env.*
+service_account.json
+credentials.json
+gcp_sa_key.json
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
+
+# Pytest / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Logs
+*.log
+logs/
+
+# OS files
+.DS_Store
+Thumbs.db

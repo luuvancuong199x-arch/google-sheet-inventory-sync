@@ -1,0 +1,80 @@
+name: Sync Real Estate Inventory (15 Mins)
+
+on:
+  schedule:
+    # Chạy tự động mỗi 15 phút liên tục (24/7)
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+    inputs:
+      project:
+        description: 'Chọn dự án muốn đồng bộ (để trống để đồng bộ toàn bộ 12 dự án)'
+        required: false
+        default: 'ALL'
+        type: choice
+        options:
+          - 'ALL'
+          - 'làng vân'
+          - 'VRI'
+          - 'MIK OCP'
+          - 'DƯƠNG KINH'
+          - 'HLX'
+          - 'Đan phượng'
+          - 'TRÀNG CÁT'
+          - 'Cần giờ'
+          - 'Hóc Môn'
+          - 'Q9'
+          - 'MAS CAO TẦNG'
+          - 'OCP2-3'
+      dry_run:
+        description: 'Chạy thử nghiệm (Dry Run - không ghi đè vào Sheet)'
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: sync-inventory-lock
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run Unit Tests
+        run: |
+          pytest
+
+      - name: Run Inventory Sync Engine
+        env:
+          GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+          PYTHONUNBUFFERED: "1"
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            CMD="python -m src.main"
+            if [ "${{ inputs.project }}" != "ALL" ]; then
+              CMD="$CMD --project '${{ inputs.project }}'"
+            else
+              CMD="$CMD --all"
+            fi
+            if [ "${{ inputs.dry_run }}" = "true" ]; then
+              CMD="$CMD --dry-run"
+            fi
+            eval $CMD
+          else
+            python -m src.main --all
+          fi

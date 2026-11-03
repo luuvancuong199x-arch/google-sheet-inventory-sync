@@ -74,7 +74,7 @@ TARGET_PROJECTS = {
     }
 }
 
-# Tiêu chuẩn 38 cột chuẩn Thấp tầng (36 cột gốc + Cột 37 Đại lý, Cột 38 Ngày cấp hàng)
+# Tiêu chuẩn 39 cột chuẩn Thấp tầng (36 cột gốc + Cột 37 Đại lý, Cột 38 Ngày cấp hàng, Cột 39 Hạn cấp hàng)
 LOW_RISE_HEADERS = [
     'STT', 'Phân khu', 'Mã căn', 'TCBG', 'Loại hình', 'Diện tích đất', 'Diện tích xây dựng',
     'Giá chưa gồm VAT', 'VAT', 'KPBT', 'Giá gồm VAT và KPBT',
@@ -84,10 +84,10 @@ LOW_RISE_HEADERS = [
     'Hướng', 'Chiều rộng mặt tiền', 'Số tầng', 'Quà tặng', 'Mô tả', 'CSBH áp dụng',
     'Ngân hàng hỗ trợ giải ngân', 'Ghi chú', 'Trạng thái', 'Nhóm quỹ',
     'Ảnh chỉ căn', 'Ảnh phiếu tính giá', 'Ẩnh chỉ căn+ PTG',
-    'Đại lý', 'Ngày cấp hàng'
+    'Đại lý', 'Ngày cấp hàng', 'Hạn cấp hàng (Còn lại)'
 ]
 
-# Tiêu chuẩn 31 cột chuẩn Cao tầng
+# Tiêu chuẩn 32 cột chuẩn Cao tầng (30 cột gốc + Cột 31 Ngày cấp hàng, Cột 32 Hạn cấp hàng)
 HIGH_RISE_HEADERS = [
     'STT', 'Mã căn', 'Phân khu', 'Loại hình', 'Hướng', 'Tên tòa', 'Tầng', 'Mã trục căn',
     'Diện tích thông thủy', 'Diện tích tim tường', 'Số phòng ngủ', 'Số WC',
@@ -95,7 +95,8 @@ HIGH_RISE_HEADERS = [
     'Giá vay', 'Giá thanh toán theo tiến độ', 'Giá thanh toán sớm', 'Đơn giá / m²',
     'Tiêu chuẩn bàn giao', 'Quà tặng', 'Mô tả', 'CSBH áp dụng',
     'Ngân hàng hỗ trợ giải ngân', 'Ảnh chỉ căn', 'Ảnh phiếu tính giá',
-    'Ghi chú', 'Trạng thái', 'Nhóm quỹ', 'Đại lý', 'Ngày cấp hàng'
+    'Ghi chú', 'Trạng thái', 'Nhóm quỹ', 'Đại lý', 'Ngày cấp hàng',
+    'Hạn cấp hàng (Còn lại)'
 ]
 
 # Danh sách mã màu đỏ thể hiện căn Đã bán / Thu hàng

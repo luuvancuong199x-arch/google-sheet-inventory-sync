@@ -24,7 +24,8 @@ from src.normalizer import (
     normalize_low_rise_type,
     normalize_high_rise_type,
     infer_grounded_zone,
-    infer_grounded_low_rise_type
+    infer_grounded_low_rise_type,
+    compute_expiry_warning
 )
 
 logger = logging.getLogger(__name__)
@@ -377,10 +378,12 @@ def parse_agency_grid_data(
 
         media = resolve_unit_media_links(chican_urls, ptg_urls)
 
-        # Ngày cấp hàng
+        # Ngày cấp hàng và tính hạn cấp (30 ngày)
         raw_issue = get_val(row, cm['issue_date']).strip()
         issue_dict = normalize_csbh_date(raw_issue)
         issue_date = issue_dict['csbh_date'] or today_str
+        expiry_info = compute_expiry_warning(issue_date)
+        expiry_display = expiry_info["display"]
 
         direction = get_val(row, cm['direction']).strip()
         desc = get_val(row, cm['desc']).strip()
@@ -407,7 +410,7 @@ def parse_agency_grid_data(
             clean_agency = agency_name.strip()
             agency_cell_val = f'=HYPERLINK("{agency_url}"; "{clean_agency}")' if agency_url else clean_agency
 
-            # Khớp chính xác 38 cột chuẩn Thấp tầng
+            # Khớp chính xác 39 cột chuẩn Thấp tầng (thêm cột 39 Hạn cấp hàng)
             row_values = [
                 0, resolved_zone, unit_code, raw_tcbg, unit_type, land_area, build_area,
                 gia_chua_vat, vat_tong, kpbt, gia_full,
@@ -417,7 +420,7 @@ def parse_agency_grid_data(
                 direction, frontage, floors, gift, desc, csbh_dict['csbh_date'],
                 bank, note, resolved_status, fund_group,
                 media['anh_chi_can'], media['anh_ptg'], media['anh_chi_can_ptg'],
-                agency_cell_val, issue_date
+                agency_cell_val, issue_date, expiry_display
             ]
         else:
             raw_type = get_val(row, cm['unit_type']).strip()
@@ -439,7 +442,7 @@ def parse_agency_grid_data(
             clean_agency = agency_name.strip()
             agency_cell_val = f'=HYPERLINK("{agency_url}"; "{clean_agency}")' if agency_url else clean_agency
 
-            # Khớp chính xác 31 cột chuẩn Cao tầng
+            # Khớp chính xác 32 cột chuẩn Cao tầng (thêm cột 32 Hạn cấp hàng)
             row_values = [
                 0, unit_code, resolved_zone, unit_type, direction, tower, floor, axis,
                 net_area, gross_area, bedrooms, wc,
@@ -448,7 +451,7 @@ def parse_agency_grid_data(
                 raw_tcbg, gift, desc, csbh_dict['csbh_date'], bank,
                 media['anh_chi_can'], media['anh_ptg'],
                 note, resolved_status, fund_group,
-                agency_cell_val, issue_date
+                agency_cell_val, issue_date, expiry_display
             ]
 
         scanned_units.append({
@@ -457,6 +460,9 @@ def parse_agency_grid_data(
             "agency_url": agency_url,
             "is_exclusive": is_exclusive,
             "status": resolved_status,
+            "issue_date": issue_date,
+            "expiry_status": expiry_info["status"],
+            "days_elapsed": expiry_info["days_elapsed"],
             "row_values": row_values
         })
 

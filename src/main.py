@@ -52,6 +52,11 @@ def sync_single_project(
     logger.info(f"==> BẮT ĐẦU ĐỒNG BỘ: {project_name} (ID: {target_id})")
     start_time = time.time()
     total_units_updated = 0
+    overall_agency_stats = {}
+    overall_project_stats = {
+        "total_units": 0, "new_today": 0, "sold_today": 0,
+        "expiring_soon": 0, "avail": 0, "lock": 0, "sold": 0
+    }
 
     if project_key == 'MAS CAO TẦNG' and config.get('sub_tabs'):
         for sub_tab in config['sub_tabs']:
@@ -74,9 +79,23 @@ def sync_single_project(
                 max_workers=max_workers
             )
 
-            merged_rows = smart_upsert_pool(
-                existing_pool, scanned, is_low_rise=False, today_str=today_str, successful_agencies=successful_agencies
+            merged_rows, stats = smart_upsert_pool(
+                existing_pool, scanned, is_low_rise=False, today_str=today_str,
+                successful_agencies=successful_agencies, return_stats=True
             )
+
+            for ag, a_s in stats["agency_stats"].items():
+                if ag not in overall_agency_stats:
+                    overall_agency_stats[ag] = {
+                        "total_units": 0, "new_today": 0, "sold_today": 0,
+                        "expiring_soon": 0, "avail": 0, "lock": 0, "sold": 0
+                    }
+                for k in overall_agency_stats[ag]:
+                    overall_agency_stats[ag][k] += a_s.get(k, 0)
+                overall_agency_stats[(ag, sub_tab.strip().upper())] = a_s
+
+            for k in overall_project_stats:
+                overall_project_stats[k] += stats["project_stats"].get(k, 0)
 
             if not dry_run:
                 write_normalized_inventory(
@@ -104,9 +123,13 @@ def sync_single_project(
             max_workers=max_workers
         )
 
-        merged_rows = smart_upsert_pool(
-            existing_pool, scanned, is_low_rise=is_low_rise, today_str=today_str, successful_agencies=successful_agencies
+        merged_rows, stats = smart_upsert_pool(
+            existing_pool, scanned, is_low_rise=is_low_rise, today_str=today_str,
+            successful_agencies=successful_agencies, return_stats=True
         )
+
+        overall_agency_stats = stats["agency_stats"]
+        overall_project_stats = stats["project_stats"]
 
         if not dry_run:
             write_normalized_inventory(
@@ -115,14 +138,24 @@ def sync_single_project(
         total_units_updated = len(merged_rows)
         logger.info(f"Đã cập nhật {total_units_updated} căn vào tab '{target_tab_name}'")
 
+    logger.info(
+        f"📊 Biến động trong ngày: 🟢 Căn mới hôm nay: +{overall_project_stats['new_today']} | "
+        f"🔴 Chuyển Đã bán: {overall_project_stats['sold_today']} | "
+        f"🟠 Sắp hết hạn (29 ngày): {overall_project_stats['expiring_soon']} | "
+        f"📊 Tổng quỹ: {overall_project_stats['total_units']}"
+    )
+
     if not dry_run:
         try:
             from src.agency_directory import update_project_agency_directory
             update_project_agency_directory(
                 sheets_service=sheets_service,
                 project_key=project_key,
-                diagnostic_lookup={},
-                sync_stats_lookup=None
+                project_daily_stats={
+                    "agency_stats": overall_agency_stats,
+                    "project_stats": overall_project_stats
+                },
+                today_str=today_str
             )
         except Exception as e_dir:
             logger.warning(f"Lỗi khi cập nhật Danh mục Đại lý cho {project_name}: {e_dir}")

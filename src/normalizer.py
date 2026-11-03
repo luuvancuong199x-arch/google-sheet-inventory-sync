@@ -578,3 +578,87 @@ def infer_grounded_low_rise_type(unit_code: str, raw_type: str = '', raw_tcbg: s
         return 'TMDV'
     return ''
 
+def compute_expiry_warning(
+    issue_date_str: str,
+    today_date: Optional[date] = None,
+    cycle_days: int = 30
+) -> Dict[str, Any]:
+    """
+    Tính toán số ngày còn lại và cảnh báo hết hạn cấp hàng.
+    - Chu kỳ chuẩn: 30 ngày kể từ ngày cấp hàng.
+    - Cảnh báo tại mốc 29 ngày: ⚠️ Sắp hết hạn (Còn 1 ngày).
+    - Quá hạn (>= 30 ngày): ⛔ Đã hết hạn (Quá X ngày).
+    - Bình thường (< 29 ngày): Còn X ngày.
+    """
+    if not issue_date_str or not isinstance(issue_date_str, str):
+        return {
+            "display": "",
+            "days_remaining": None,
+            "days_elapsed": None,
+            "status": "UNKNOWN"
+        }
+
+    clean_str = issue_date_str.strip().rstrip('.')
+    m = re.match(r'^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$', clean_str)
+    if not m:
+        return {
+            "display": "",
+            "days_remaining": None,
+            "days_elapsed": None,
+            "status": "UNKNOWN"
+        }
+
+    d = int(m.group(1))
+    month = int(m.group(2))
+    y = int(m.group(3))
+
+    try:
+        parsed_date = date(y, month, d)
+    except ValueError:
+        return {
+            "display": "",
+            "days_remaining": None,
+            "days_elapsed": None,
+            "status": "UNKNOWN"
+        }
+
+    if today_date is None:
+        today_date = date.today()
+
+    days_elapsed = (today_date - parsed_date).days
+
+    if days_elapsed < 0:
+        return {
+            "display": f"Còn {cycle_days} ngày",
+            "days_remaining": cycle_days,
+            "days_elapsed": 0,
+            "status": "NORMAL"
+        }
+
+    days_remaining = cycle_days - days_elapsed
+
+    if days_elapsed == 29:
+        return {
+            "display": "⚠️ Sắp hết hạn (Còn 1 ngày)",
+            "days_remaining": 1,
+            "days_elapsed": 29,
+            "status": "EXPIRING_SOON"
+        }
+    elif days_elapsed >= cycle_days:
+        over_days = days_elapsed - cycle_days
+        over_str = f"Quá {over_days} ngày" if over_days > 0 else "Hôm nay"
+        return {
+            "display": f"⛔ Đã hết hạn ({over_str})",
+            "days_remaining": days_remaining,
+            "days_elapsed": days_elapsed,
+            "status": "EXPIRED"
+        }
+    else:
+        return {
+            "display": f"Còn {days_remaining} ngày",
+            "days_remaining": days_remaining,
+            "days_elapsed": days_elapsed,
+            "status": "NORMAL"
+        }
+
+

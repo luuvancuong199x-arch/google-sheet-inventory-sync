@@ -101,3 +101,51 @@ def test_infer_grounded_low_rise_type():
     assert infer_grounded_low_rise_type("BTĐL-03", "") == "BTĐL"
     assert infer_grounded_low_rise_type("UNKNOWN-01", "") == ""
 
+def test_compute_expiry_warning():
+    from datetime import date, timedelta
+    from src.normalizer import compute_expiry_warning
+
+    today = date(2026, 11, 3)
+
+    # 1. Cấp hôm nay (0 ngày) -> Còn 30 ngày
+    res_today = compute_expiry_warning("03/11/2026", today_date=today)
+    assert res_today["status"] == "NORMAL"
+    assert res_today["days_remaining"] == 30
+    assert res_today["display"] == "Còn 30 ngày"
+
+    # 2. Cấp cách đây 10 ngày -> Còn 20 ngày
+    d10 = today - timedelta(days=10)
+    res_10 = compute_expiry_warning(d10.strftime("%d/%m/%Y"), today_date=today)
+    assert res_10["status"] == "NORMAL"
+    assert res_10["days_remaining"] == 20
+    assert res_10["display"] == "Còn 20 ngày"
+
+    # 3. Mốc 29 ngày -> ⚠️ Sắp hết hạn (Còn 1 ngày)
+    d29 = today - timedelta(days=29)
+    res_29 = compute_expiry_warning(d29.strftime("%d/%m/%Y"), today_date=today)
+    assert res_29["status"] == "EXPIRING_SOON"
+    assert res_29["days_remaining"] == 1
+    assert res_29["days_elapsed"] == 29
+    assert res_29["display"] == "⚠️ Sắp hết hạn (Còn 1 ngày)"
+
+    # 4. Mốc 30 ngày (đúng ngày hết hạn) -> ⛔ Đã hết hạn (Hôm nay)
+    d30 = today - timedelta(days=30)
+    res_30 = compute_expiry_warning(d30.strftime("%d/%m/%Y"), today_date=today)
+    assert res_30["status"] == "EXPIRED"
+    assert res_30["days_remaining"] == 0
+    assert res_30["days_elapsed"] == 30
+    assert res_30["display"] == "⛔ Đã hết hạn (Hôm nay)"
+
+    # 5. Mốc quá hạn 5 ngày (35 ngày) -> ⛔ Đã hết hạn (Quá 5 ngày)
+    d35 = today - timedelta(days=35)
+    res_35 = compute_expiry_warning(d35.strftime("%d/%m/%Y"), today_date=today)
+    assert res_35["status"] == "EXPIRED"
+    assert res_35["days_remaining"] == -5
+    assert res_35["days_elapsed"] == 35
+    assert res_35["display"] == "⛔ Đã hết hạn (Quá 5 ngày)"
+
+    # 6. Ngày rỗng hoặc không hợp lệ -> UNKNOWN
+    assert compute_expiry_warning("")["status"] == "UNKNOWN"
+    assert compute_expiry_warning("invalid-date")["status"] == "UNKNOWN"
+
+

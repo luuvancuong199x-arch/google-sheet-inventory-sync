@@ -170,3 +170,87 @@ def test_sorting_by_agency_status_unit_code():
 
     # Verify STT 1 to 6
     assert [r[0] for r in final_rows] == [1, 2, 3, 4, 5, 6]
+
+def test_smart_upsert_pool_expiry_and_daily_stats():
+    from datetime import date, timedelta
+    today = date(2026, 11, 3)
+    today_str = today.strftime("%d/%m/%Y")
+    d29_str = (today - timedelta(days=29)).strftime("%d/%m/%Y")
+
+    # existing_pool has:
+    # 1. LK-01 from Agency A: was 'Còn hàng', issued 29 days ago -> will become EXPIRING_SOON
+    # 2. LK-02 from Agency A: was 'Còn hàng', now scanned as 'Đã bán' -> will count towards sold_today!
+    # 3. LK-03 from Agency B: was 'Còn hàng', issued 10 days ago (network failed, preserved)
+    existing_pool = {
+        "LK-01": {
+            "unit_key": "LK-01",
+            "row_values": [1, "Khu A", "LK-01", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng"] + [""] * 4 + ["Agency A", d29_str]
+        },
+        "LK-02": {
+            "unit_key": "LK-02",
+            "row_values": [2, "Khu A", "LK-02", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng"] + [""] * 4 + ["Agency A", "01/10/2026"]
+        },
+        "LK-03": {
+            "unit_key": "LK-03",
+            "row_values": [3, "Khu B", "LK-03", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng"] + [""] * 4 + ["Agency B", "24/10/2026"]
+        }
+    }
+
+    # scanned_units has:
+    # 1. LK-01 from Agency A: still 'Còn hàng', same issue date
+    # 2. LK-02 from Agency A: marked 'Đã bán'
+    # 3. LK-04 from Agency A: brand new unit added today!
+    scanned_units = [
+        {
+            "unit_key": "LK-01",
+            "is_exclusive": False,
+            "status": "Còn hàng",
+            "row_values": [0, "Khu A", "LK-01", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng"] + [""] * 4 + ["Agency A", d29_str]
+        },
+        {
+            "unit_key": "LK-02",
+            "is_exclusive": False,
+            "status": "Đã bán",
+            "row_values": [0, "Khu A", "LK-02", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Đã bán"] + [""] * 4 + ["Agency A", "01/10/2026"]
+        },
+        {
+            "unit_key": "LK-04",
+            "is_exclusive": False,
+            "status": "Còn hàng",
+            "row_values": [0, "Khu A", "LK-04", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng"] + [""] * 4 + ["Agency A", today_str]
+        }
+    ]
+
+    final_rows, stats = smart_upsert_pool(
+        existing_pool,
+        scanned_units,
+        is_low_rise=True,
+        today_str=today_str,
+        successful_agencies={"Agency A"},
+        return_stats=True
+    )
+
+    # Check row length is 39 for all rows
+    assert all(len(r) == 39 for r in final_rows)
+
+    # LK-01 should have expiry warning at col 38
+    lk01_row = next(r for r in final_rows if r[2] == "LK-01")
+    assert "⚠️ Sắp hết hạn" in lk01_row[38]
+
+    # Preserved LK-03 should also have expiry computed at col 38
+    lk03_row = next(r for r in final_rows if r[2] == "LK-03")
+    assert "Còn" in lk03_row[38]
+
+    # Verify daily stats
+    p_stats = stats["project_stats"]
+    assert p_stats["total_units"] == 4
+    assert p_stats["new_today"] == 1  # LK-04 is new today
+    assert p_stats["sold_today"] == 1  # LK-02 transitioned to Đã bán
+    assert p_stats["expiring_soon"] == 1  # LK-01 is 29 days
+
+    ag_a_stats = stats["agency_stats"]["AGENCY A"]
+    assert ag_a_stats["new_today"] == 1
+    assert ag_a_stats["sold_today"] == 1
+    assert ag_a_stats["expiring_soon"] == 1
+    assert ag_a_stats["total_units"] == 3
+

@@ -64,7 +64,7 @@ def read_existing_target_pool(
     Đọc dữ liệu hiện có trong Sheet đích để phục vụ cơ chế Smart Upsert.
     """
     try:
-        range_name = f"'{sheet_name}'!A1:AL15000"
+        range_name = f"'{sheet_name}'!A1:AN15000"
         resp = _execute_api_call(sheets_service.spreadsheets().values().get(
             spreadsheetId=spreadsheet_id,
             range=range_name,
@@ -134,7 +134,7 @@ def write_normalized_inventory(
             if sh['properties']['sheetId'] == sheet_id:
                 current_total_rows = sh['properties']['gridProperties']['rowCount']
                 if current_total_rows > len(all_values):
-                    clear_range = f"'{sheet_name}'!A{len(all_values) + 1}:AL{current_total_rows}"
+                    clear_range = f"'{sheet_name}'!A{len(all_values) + 1}:AN{current_total_rows}"
                     sheets_service.spreadsheets().values().clear(
                         spreadsheetId=spreadsheet_id,
                         range=clear_range
@@ -210,6 +210,8 @@ def write_normalized_inventory(
 
         # Cột Trạng thái: Căn giữa, Danh sách chọn (Dropdown list), và Quy tắc thẻ màu (Xanh lá - Cam - Đỏ)
         status_col_idx = 31 if is_low_rise else 27
+        expiry_col_idx = 38 if is_low_rise else 31
+
         requests.append({
             "repeatCell": {
                 "range": {
@@ -218,6 +220,25 @@ def write_normalized_inventory(
                     "endRowIndex": len(all_values),
                     "startColumnIndex": status_col_idx,
                     "endColumnIndex": status_col_idx + 1
+                },
+                "cell": {
+                    "userEnteredFormat": {
+                        "horizontalAlignment": "CENTER"
+                    }
+                },
+                "fields": "userEnteredFormat.horizontalAlignment"
+            }
+        })
+
+        # Cột Hạn cấp hàng: Căn giữa
+        requests.append({
+            "repeatCell": {
+                "range": {
+                    "sheetId": sheet_id,
+                    "startRowIndex": 1,
+                    "endRowIndex": len(all_values),
+                    "startColumnIndex": expiry_col_idx,
+                    "endColumnIndex": expiry_col_idx + 1
                 },
                 "cell": {
                     "userEnteredFormat": {
@@ -254,6 +275,7 @@ def write_normalized_inventory(
 
         # Kiểm tra xem quy tắc màu sắc (Conditional Formatting) đã có chưa để không tạo trùng lặp
         has_status_cf = False
+        has_expiry_cf = False
         try:
             cf_meta = _execute_api_call(sheets_service.spreadsheets().get(
                 spreadsheetId=spreadsheet_id,
@@ -265,7 +287,8 @@ def write_normalized_inventory(
                         for r in cf.get('ranges', []):
                             if r.get('startColumnIndex') == status_col_idx:
                                 has_status_cf = True
-                                break
+                            if r.get('startColumnIndex') == expiry_col_idx:
+                                has_expiry_cf = True
                     break
         except Exception as e:
             logger.warning(f"Lỗi khi kiểm tra conditional formats: {e}")
@@ -283,7 +306,7 @@ def write_normalized_inventory(
                         }],
                         "booleanRule": {
                             "condition": {
-                                "type": "TEXT_EQ",
+                               "type": "TEXT_EQ",
                                 "values": [{"userEnteredValue": "Còn hàng"}]
                             },
                             "format": {
@@ -350,6 +373,63 @@ def write_normalized_inventory(
                         }
                     },
                     "index": 2
+                }
+            })
+
+        if not has_expiry_cf:
+            # Cảnh báo hạn cấp hàng
+            # 1. ⚠️ Sắp hết hạn (mốc 29 ngày): Nền cam nhạt, chữ cam đậm
+            requests.append({
+                "addConditionalFormatRule": {
+                    "rule": {
+                        "ranges": [{
+                            "sheetId": sheet_id,
+                            "startRowIndex": 1,
+                            "startColumnIndex": expiry_col_idx,
+                            "endColumnIndex": expiry_col_idx + 1
+                        }],
+                        "booleanRule": {
+                            "condition": {
+                                "type": "TEXT_CONTAINS",
+                                "values": [{"userEnteredValue": "⚠️ Sắp hết hạn"}]
+                            },
+                            "format": {
+                                "backgroundColor": {"red": 1.0, "green": 0.949, "blue": 0.8},
+                                "textFormat": {
+                                    "foregroundColor": {"red": 0.706, "green": 0.373, "blue": 0.024},
+                                    "bold": True
+                                }
+                            }
+                        }
+                    },
+                    "index": 0
+                }
+            })
+            # 2. ⛔ Đã hết hạn (quá 30 ngày): Nền đỏ nhạt, chữ đỏ đậm
+            requests.append({
+                "addConditionalFormatRule": {
+                    "rule": {
+                        "ranges": [{
+                            "sheetId": sheet_id,
+                            "startRowIndex": 1,
+                            "startColumnIndex": expiry_col_idx,
+                            "endColumnIndex": expiry_col_idx + 1
+                        }],
+                        "booleanRule": {
+                            "condition": {
+                                "type": "TEXT_CONTAINS",
+                                "values": [{"userEnteredValue": "⛔ Đã hết hạn"}]
+                            },
+                            "format": {
+                                "backgroundColor": {"red": 0.957, "green": 0.800, "blue": 0.800},
+                                "textFormat": {
+                                    "foregroundColor": {"red": 0.600, "green": 0.0, "blue": 0.0},
+                                    "bold": True
+                                }
+                            }
+                        }
+                    },
+                    "index": 1
                 }
             })
 

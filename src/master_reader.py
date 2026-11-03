@@ -10,37 +10,67 @@ from src.config import MASTER_SPREADSHEET_ID
 
 logger = logging.getLogger(__name__)
 
+def parse_spreadsheet_url_and_gids(raw_url: str) -> List[Dict[str, Any]]:
+    """
+    Phân tích URL Google Spreadsheet, trích xuất Spreadsheet ID và TẤT CẢ các GID được chỉ định.
+    Hỗ trợ:
+      - 1 URL thông thường: ?gid=1592630955
+      - Nhiều GID cách nhau bởi dấu phẩy: ?gid=1592630955,1143879447
+      - Nhiều tham số gid: ?gid=1592630955&gid=1143879447
+      - Không có GID: gid=None
+    """
+    if not raw_url or not isinstance(raw_url, str):
+        return []
+
+    clean_url = raw_url.strip()
+    if 'docs.google.com/spreadsheets' not in clean_url:
+        return []
+
+    # Khớp Spreadsheet ID (chuỗi ít nhất 15 ký tự)
+    id_match = re.search(r'/spreadsheets/(?:u/\d+/)?d/([a-zA-Z0-9_-]{15,})', clean_url)
+    if not id_match:
+        return []
+    spreadsheet_id = id_match.group(1)
+
+    # Nhận diện file Excel (.xlsx) tải lên Google Drive
+    is_excel = bool(re.search(r'rtpof=true|\.xlsx', clean_url, re.IGNORECASE))
+
+    # Tìm tất cả GID
+    gids = []
+    for m in re.finditer(r'[?#&]gid=([0-9,]+)', clean_url):
+        for part in m.group(1).split(','):
+            part = part.strip()
+            if part.isdigit():
+                gids.append(int(part))
+
+    if not gids:
+        return [{
+            "spreadsheet_id": spreadsheet_id,
+            "gid": None,
+            "url": clean_url,
+            "is_excel": is_excel
+        }]
+
+    seen_gids = set()
+    results = []
+    for g in gids:
+        if g not in seen_gids:
+            seen_gids.add(g)
+            results.append({
+                "spreadsheet_id": spreadsheet_id,
+                "gid": g,
+                "url": clean_url,
+                "is_excel": is_excel
+            })
+    return results
+
 def parse_spreadsheet_url_and_gid(raw_url: str) -> Optional[Dict[str, Any]]:
     """
     Phân tích URL Google Spreadsheet, trích xuất Spreadsheet ID và GID (sheetId).
     Đồng thời phát hiện nếu liên kết trỏ tới file Excel lưu trên Drive (rtpof=true).
     """
-    if not raw_url or not isinstance(raw_url, str):
-        return None
-
-    clean_url = raw_url.strip()
-    if 'docs.google.com/spreadsheets' not in clean_url:
-        return None
-
-    # Khớp Spreadsheet ID (chuỗi ít nhất 15 ký tự)
-    id_match = re.search(r'/spreadsheets/(?:u/\d+/)?d/([a-zA-Z0-9_-]{15,})', clean_url)
-    if not id_match:
-        return None
-    spreadsheet_id = id_match.group(1)
-
-    # Khớp GID nếu có
-    gid_match = re.search(r'[?#&]gid=(\d+)', clean_url)
-    gid = int(gid_match.group(1)) if gid_match else None
-
-    # Nhận diện file Excel (.xlsx) tải lên Google Drive
-    is_excel = bool(re.search(r'rtpof=true|\.xlsx', clean_url, re.IGNORECASE))
-
-    return {
-        "spreadsheet_id": spreadsheet_id,
-        "gid": gid,
-        "url": clean_url,
-        "is_excel": is_excel
-    }
+    entries = parse_spreadsheet_url_and_gids(raw_url)
+    return entries[0] if entries else None
 
 def parse_master_sheet_rows(
     rows: List[List[str]],
@@ -93,10 +123,9 @@ def parse_master_sheet_rows(
                 if col_idx < len(row):
                     cell_val = str(row[col_idx] or '').strip()
                     if cell_val:
-                        parts = re.split(r'[;\n]+', cell_val)
+                        parts = re.split(r'[;\n]+|,\s*(?=https?://)|\s+(?=https?://)', cell_val)
                         for part in parts:
-                            parsed = parse_spreadsheet_url_and_gid(part)
-                            if parsed:
+                            for parsed in parse_spreadsheet_url_and_gids(part):
                                 add_entry(agency_name, parsed, sub=s_name)
     else:
         # Bảng thông thường (Cột 1: Tên đại lý, Cột 2: Link bảng hàng)
@@ -109,10 +138,9 @@ def parse_master_sheet_rows(
             if not agency_name or not link_cell:
                 continue
 
-            parts = re.split(r'[;\n]+', link_cell)
+            parts = re.split(r'[;\n]+|,\s*(?=https?://)|\s+(?=https?://)', link_cell)
             for part in parts:
-                parsed = parse_spreadsheet_url_and_gid(part)
-                if parsed:
+                for parsed in parse_spreadsheet_url_and_gids(part):
                     add_entry(agency_name, parsed, sub=None)
 
     return results

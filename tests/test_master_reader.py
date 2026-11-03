@@ -51,3 +51,22 @@ def test_parse_master_sheet_rows_mas_cao_tang():
     links_all = parse_master_sheet_rows(rows, project_key="MAS CAO TẦNG", sub_tab_filter=None)
     assert len(links_all) == 2
     assert {l["sub"] for l in links_all} == {"MGC", "MEL"}
+
+def test_parse_spreadsheet_url_multiple_gids():
+    from src.master_reader import parse_spreadsheet_url_and_gids
+    # Comma-separated GIDs
+    url_comma = "https://docs.google.com/spreadsheets/d/1-KcwSLpuSQGhqOZ8BycoRLeE3DUrawan/edit?gid=1592630955,1143879447"
+    entries = parse_spreadsheet_url_and_gids(url_comma)
+    assert len(entries) == 2
+    assert entries[0]["gid"] == 1592630955
+    assert entries[1]["gid"] == 1143879447
+
+    # Multiple links in single cell separated by semicolon or whitespace
+    rows = [
+        ["STT", "TÊN ĐL", "LINK BẢNG HÀNG"],
+        ["1", "MAYHOMES", "https://docs.google.com/spreadsheets/d/1-KcwSLpuSQGhqOZ8BycoRLeE3DUrawan/edit?gid=1592630955; https://docs.google.com/spreadsheets/d/1-KcwSLpuSQGhqOZ8BycoRLeE3DUrawan/edit?gid=1143879447"]
+    ]
+    parsed_rows = parse_master_sheet_rows(rows, "OCP2-3")
+    assert len(parsed_rows) == 2
+    assert parsed_rows[0]["gid"] == 1592630955
+    assert parsed_rows[1]["gid"] == 1143879447

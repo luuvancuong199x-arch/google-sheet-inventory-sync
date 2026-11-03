@@ -71,3 +71,24 @@ def test_red_yellow_hidden_status_resolution():
     assert by_key["LK-02"] == "Đang lock"
     assert by_key["LK-03"] == "Đã bán"
     assert by_key["LK-04"] == "Còn hàng"
+
+def test_no_price_becomes_sold():
+    headers = ["STT", "Phân khu", "Mã căn", "DT đất", "Giá bán"]
+    grid_rows = [
+        [{"formattedValue": h} for h in headers],
+        # Có DT đất nhưng không có Giá bán -> Tự động 'Đã bán'
+        [{"formattedValue": "1"}, {"formattedValue": "Khu A"}, {"formattedValue": "LK-05"}, {"formattedValue": "100"}, {"formattedValue": ""}],
+        # Có cả DT đất và Giá bán -> 'Còn hàng'
+        [{"formattedValue": "2"}, {"formattedValue": "Khu A"}, {"formattedValue": "LK-06"}, {"formattedValue": "100"}, {"formattedValue": "4500000000"}],
+    ]
+    parsed = parse_agency_grid_data(
+        grid_rows,
+        agency_name="TEST_AGENCY",
+        project_key="test_project",
+        is_low_rise=True,
+        existing_pool_keys=set(),
+        today_str="03/11/2026"
+    )
+    by_key = {u["unit_key"]: u["status"] for u in parsed}
+    assert by_key["LK-05"] == "Đã bán"
+    assert by_key["LK-06"] == "Còn hàng"

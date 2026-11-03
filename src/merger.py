@@ -6,6 +6,7 @@ Module hợp nhất dữ liệu thông minh và chống mất trắng dữ liệ
 - Ưu tiên trạng thái Đã bán nếu bất kỳ nguồn nào đánh dấu Đã bán.
 """
 
+import re
 from typing import Dict, List, Any, Optional
 from src.normalizer import sanitize_unit_code
 
@@ -76,6 +77,9 @@ def smart_upsert_pool(
         row_vals = list(data.get("row_values", []))
         old_agency = str(row_vals[agency_col_idx] if len(row_vals) > agency_col_idx else '').strip()
         if successful_agencies and old_agency in successful_agencies:
+            continue
+        # Bỏ qua các dòng dữ liệu rác cũ bị lệch cột ngày vào cột đại lý
+        if re.match(r'^\d{2}/\d{2}/\d{4}$', old_agency):
             continue
         master_pool[key] = row_vals
 

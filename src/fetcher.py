@@ -7,9 +7,12 @@ import re
 import time
 import logging
 import threading
+import zipfile
+import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, List, Any, Optional, Tuple
 
+from src.config import NON_INVENTORY_TAB_REGEX
 from src.normalizer import (
     sanitize_unit_code,
     normalize_high_rise_unit_floor_axis,
@@ -100,6 +103,37 @@ def get_openpyxl_cell_color(cell) -> str:
     if rgb and isinstance(rgb, str):
         return classify_hex_color(rgb)
     return 'neutral'
+
+def extract_xlsx_gid_mapping(file_bytes_or_stream) -> Dict[int, str]:
+    """
+    Trích xuất mapping giữa Google Sheets GID và tên worksheet (sheet_name) trong file Excel (.xlsx) tải từ Google Drive.
+    """
+    gid_to_name = {}
+    sheet_id_to_name = {}
+    try:
+        with zipfile.ZipFile(file_bytes_or_stream, 'r') as z:
+            if 'xl/workbook.xml' in z.namelist():
+                wb_xml = z.read('xl/workbook.xml').decode('utf-8', errors='ignore')
+                root = ET.fromstring(wb_xml)
+                for elem in root.iter():
+                    if elem.tag.endswith('sheet'):
+                        name = elem.attrib.get('name')
+                        s_id = elem.attrib.get('sheetId')
+                        if name and s_id:
+                            sheet_id_to_name[str(s_id)] = name
+
+            for n in z.namelist():
+                if 'metadata' in n.lower():
+                    raw = z.read(n)
+                    matches = re.findall(rb'\n\x01(\d+)\x12[\n\t](\d+)', raw)
+                    for s_id_b, gid_b in matches:
+                        s_id = s_id_b.decode('ascii')
+                        gid = int(gid_b.decode('ascii'))
+                        if s_id in sheet_id_to_name:
+                            gid_to_name[gid] = sheet_id_to_name[s_id]
+    except Exception as e:
+        logger.debug(f"Không thể trích xuất GID metadata từ xlsx: {e}")
+    return gid_to_name
 
 def map_columns_from_headers(header_cells: List[str]) -> Dict[str, int]:
     """Ánh xạ tên cột sang chỉ số cột 0-based."""
@@ -278,7 +312,15 @@ def parse_agency_grid_data(
         is_red = ('red' in row_colors)
         is_yellow = ('yellow' in row_colors)
 
-        # 3. Trạng thái căn từ văn bản nguồn
+        # 3. Giá các loại để nhận diện có thông tin mở bán thực tế hay không
+        gia_chua_vat = normalize_price_to_vnd(get_val(row, cm['gia_chua_vat']))
+        gia_full = normalize_price_to_vnd(get_val(row, cm['gia_full']))
+        gia_vay = normalize_price_to_vnd(get_val(row, cm['gia_vay']))
+        gia_tttd = normalize_price_to_vnd(get_val(row, cm['gia_tttd']))
+        gia_tts = normalize_price_to_vnd(get_val(row, cm['gia_tts']))
+        has_price = bool(gia_full or gia_chua_vat or gia_vay or gia_tttd or gia_tts)
+
+        # 4. Trạng thái căn từ văn bản nguồn
         raw_status = get_val(row, cm['status']).strip().lower()
         raw_note = get_val(row, cm['note']).strip().lower()
         combined_status = f"{raw_status} {raw_note}"
@@ -290,13 +332,16 @@ def parse_agency_grid_data(
         # Quy tắc xác định trạng thái (Ưu tiên màu sắc và ẩn dòng theo yêu cầu nghiệp vụ):
         # - Bị bôi đỏ HOẶC dòng bị ẩn -> Tự động đặt trạng thái 'Đã bán' (ghi đè lên trạng thái của nguồn)
         # - Bị bôi vàng -> Tự động đặt trạng thái 'Đang lock'
+        # - Không có bất kỳ trường giá nào -> Tự động đặt trạng thái 'Đã bán'
         # - Nguồn ghi rõ đã bán -> 'Đã bán'
         # - Nguồn ghi rõ lock -> 'Đang lock'
-        # - Hết tô màu đỏ/vàng và không ẩn dòng -> Tự động cập nhật lại là 'Còn hàng'
+        # - Hết tô màu đỏ/vàng, không ẩn dòng và có giá -> Tự động cập nhật lại là 'Còn hàng'
         if is_red or is_row_hidden:
             resolved_status = 'Đã bán'
         elif is_yellow:
             resolved_status = 'Đang lock'
+        elif not has_price:
+            resolved_status = 'Đã bán'
         elif is_sold_signal:
             resolved_status = 'Đã bán'
         elif 'lock' in combined_status:
@@ -344,21 +389,15 @@ def parse_agency_grid_data(
             land_area = sanitize_single_area(get_val(row, cm['land_area']), is_low_rise=True)
             build_area = sanitize_single_area(get_val(row, cm['build_area']), is_low_rise=True, is_construction=True)
 
-            gia_chua_vat = normalize_price_to_vnd(get_val(row, cm['gia_chua_vat']))
             vat_tong = normalize_price_to_vnd(get_val(row, cm['vat_tong']), unit_hint='VAT_KPBT')
             kpbt = normalize_price_to_vnd(get_val(row, cm['kpbt']), unit_hint='VAT_KPBT')
-            gia_full = normalize_price_to_vnd(get_val(row, cm['gia_full']))
             don_gia_m2 = normalize_price_to_vnd(get_val(row, cm['don_gia_m2']), unit_hint='M2')
-            gia_vay = normalize_price_to_vnd(get_val(row, cm['gia_vay']))
-            gia_tttd = normalize_price_to_vnd(get_val(row, cm['gia_tttd']))
-            gia_tts = normalize_price_to_vnd(get_val(row, cm['gia_tts']))
 
             frontage = normalize_numeric_or_null(get_val(row, cm['frontage']))
             floors = normalize_numeric_or_null(get_val(row, cm['floors']), is_integer=True)
 
             # Loại bỏ các dòng trống không có cả diện tích lẫn giá
             has_area = bool(land_area or build_area)
-            has_price = bool(gia_full or gia_chua_vat or gia_vay or gia_tttd or gia_tts)
             if not has_area and not has_price:
                 continue
 
@@ -383,17 +422,11 @@ def parse_agency_grid_data(
             wc = normalize_numeric_or_null(get_val(row, cm['wc']), is_integer=False)
 
             kpbt = normalize_price_to_vnd(get_val(row, cm['kpbt']), unit_hint='VAT_KPBT')
-            gia_chua_vat = normalize_price_to_vnd(get_val(row, cm['gia_chua_vat']))
-            gia_full = normalize_price_to_vnd(get_val(row, cm['gia_full']))
-            gia_vay = normalize_price_to_vnd(get_val(row, cm['gia_vay']))
-            gia_tttd = normalize_price_to_vnd(get_val(row, cm['gia_tttd']))
-            gia_tts = normalize_price_to_vnd(get_val(row, cm['gia_tts']))
             don_gia_m2 = normalize_price_to_vnd(get_val(row, cm['don_gia_m2']), unit_hint='M2')
             raw_tcbg = get_val(row, cm['tcbg']).strip()
 
             # Loại bỏ các dòng trống không có cả diện tích lẫn giá
             has_area = bool(net_area or gross_area)
-            has_price = bool(gia_full or gia_chua_vat or gia_vay or gia_tttd or gia_tts)
             if not has_area and not has_price:
                 continue
 
@@ -442,21 +475,36 @@ def fetch_agency_from_drive_xlsx(
         while not done:
             status, done = downloader.next_chunk()
         fh.seek(0)
+        gid_to_name = extract_xlsx_gid_mapping(fh)
+        fh.seek(0)
         wb = openpyxl.load_workbook(fh, data_only=True)
 
-        skip_rx = re.compile(
-            r'(stk|tài khoản|tai khoan|giỏ bank|gio bank|đầu mối|dau moi|thông số|thong so|'
-            r'giải chấp|giai chap|bàn giao|ban giao|csbh|đã bán|da ban|check ẩn|check an|'
-            r'quỹ ẩn|quy an|quỹ cũ|quy cu|lưu|game|tạo tk|quy định|quy dinh|hướng dẫn|huong dan)',
-            re.IGNORECASE
-        )
+        skip_rx = re.compile(NON_INVENTORY_TAB_REGEX, re.IGNORECASE)
+
+        sheets_to_scan = []
+        if target_gid is not None:
+            target_sheet_name = gid_to_name.get(target_gid)
+            if not target_sheet_name:
+                try:
+                    target_sheet_name = gid_to_name.get(int(target_gid))
+                except (ValueError, TypeError):
+                    pass
+
+            if target_sheet_name and target_sheet_name in wb.sheetnames:
+                sheets_to_scan = [wb[target_sheet_name]]
+            else:
+                logger.warning(f"Không tìm thấy sheet tương ứng GID {target_gid} trong file Excel {agency_name} ({file_id}). Bỏ qua link.")
+                return []
+        else:
+            sheets_to_scan = [
+                ws for ws in wb.worksheets
+                if getattr(ws, 'sheet_state', 'visible') == 'visible' and not skip_rx.search(ws.title)
+            ]
 
         all_units = []
-        for ws in wb.worksheets:
-            # Bỏ qua các tab bị ẩn (sheet hidden/veryHidden)
+        for ws in sheets_to_scan:
+            # Bỏ qua các tab bị ẩn (sheet hidden/veryHidden) nếu không chỉ định GID cụ thể
             if getattr(ws, 'sheet_state', 'visible') != 'visible':
-                continue
-            if skip_rx.search(ws.title):
                 continue
             grid_rows = []
             row_hidden_flags = []

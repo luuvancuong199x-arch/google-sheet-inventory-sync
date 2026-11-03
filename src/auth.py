@@ -25,7 +25,8 @@ def get_credentials():
     sa_json = os.environ.get('GCP_SA_KEY')
     if sa_json:
         try:
-            info = json.loads(sa_json)
+            clean_json = sa_json.strip().lstrip('\ufeff')
+            info = json.loads(clean_json)
             return Credentials.from_service_account_info(info, scopes=SCOPES)
         except Exception as e:
             raise ValueError(f"Không thể phân tích dữ liệu JSON từ biến môi trường GCP_SA_KEY: {e}")

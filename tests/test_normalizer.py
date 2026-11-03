@@ -18,18 +18,24 @@ def test_sanitize_unit_code():
     assert sanitize_unit_code("  s6.0619.06*  ") == "S6.0619.06"
     assert sanitize_unit_code("SH-10 Xẻ khe") == "SH-10"
 
-def test_normalize_high_rise_unit_floor_axis_preserves_axis():
-    # Axis 04 must NOT be converted to 05A!
-    res = normalize_high_rise_unit_floor_axis("M1-10-04", raw_tower="", raw_floor="10", raw_axis="04")
-    assert res["axis"] == "04"
-    assert res["tower"] == "M1"
-    assert res["floor"] == "10"
-    assert res["unit_code"] == "M1-10-04"
+def test_normalize_high_rise_unit_floor_axis_commercial_rules():
+    # Quy tắc hệ mã thương mại: Căn số/Trục căn và Tầng đều quy đổi
+    # 04 -> 05A, 07 -> 08A, 13 -> 12A, 14 -> 15A
+    res1 = normalize_high_rise_unit_floor_axis("M1-10-04", raw_tower="", raw_floor="10", raw_axis="04")
+    assert res1["axis"] == "05A"  # 04 -> 05A theo quy tắc thương mại
+    assert res1["tower"] == "M1"
+    assert res1["floor"] == "10"
+    assert res1["unit_code"] == "M1-10-05A"
 
-    # Axis 07 must NOT be converted to 08A!
     res2 = normalize_high_rise_unit_floor_axis("A1-04-07", raw_tower="", raw_floor="4", raw_axis="7")
-    assert res2["floor"] == "05A"  # Floor 4 converts to 05A
-    assert res2["axis"] == "07"   # Axis 7 converts to 07 (NOT 08A!)
+    assert res2["floor"] == "05A"  # 04 -> 05A
+    assert res2["axis"] == "08A"   # 07 -> 08A
+    assert res2["unit_code"] == "A1-05A-08A"
+
+    res3 = normalize_high_rise_unit_floor_axis("BS11-14-13", raw_tower="", raw_floor="14", raw_axis="13")
+    assert res3["floor"] == "15A"  # 14 -> 15A
+    assert res3["axis"] == "12A"   # 13 -> 12A
+    assert res3["unit_code"] == "BS11-15A-12A"
 
 def test_wc_decimal_preservation():
     # Crucial bug fix: 2.5 WC must NOT become 25 WC!

@@ -13,8 +13,9 @@ from datetime import date
 from typing import Dict, Any, List, Optional, Tuple
 from src.config import DEFAULT_POLICY_YEAR
 
-# Bảng quy đổi tầng phong thủy (CHỈ ÁP DỤNG CHO TẦNG, TUYỆT ĐỐI KHÔNG ÁP DỤNG CHO TRỤC CĂN)
-FLOOR_COMMERCIAL_MAP = {
+# Bảng quy đổi hệ mã thương mại (Quy tắc nghiệp vụ: Áp dụng cho cả Mã Tầng và Mã Trục/Căn số)
+# Chuẩn hóa về hệ mã thương mại: 01, 02, 03, 05A (từ 04), 05, 06, 08A (từ 07), 08, 09, 10, 11, 12, 12A (từ 13), 15A (từ 14), 15, 16, 17, 18...
+COMMERCIAL_CODE_MAP = {
     '1': '01', '01': '01',
     '2': '02', '02': '02',
     '3': '03', '03': '03',
@@ -35,40 +36,37 @@ FLOOR_COMMERCIAL_MAP = {
     '18': '18'
 }
 
-def to_commercial_floor_code(raw_token: Any) -> str:
-    """Chuẩn hóa mã tầng thương mại theo phong thủy."""
+def to_commercial_code(raw_token: Any) -> str:
+    """
+    Quy tắc chuẩn hóa hệ mã thương mại cho cả Tầng và Trục/Căn số:
+    - 04 hoặc 4   -> 05A
+    - 07 hoặc 7   -> 08A
+    - 13          -> 12A
+    - 14          -> 15A
+    - Các số từ 1-9 pad số 0 phía trước: 01, 02, 03, 05, 06, 08, 09
+    """
     if raw_token is None:
         return ''
     s = str(raw_token).strip().upper()
-    s = re.sub(r'^(TẦNG|TANG|SỐ|SO)\s*', '', s, flags=re.IGNORECASE).strip()
+    s = re.sub(r'^(TẦNG|TANG|TRỤC|TRUC|CĂN|CAN|SỐ|SO)\s*', '', s, flags=re.IGNORECASE).strip()
     if not s:
         return ''
-    if s in FLOOR_COMMERCIAL_MAP:
-        return FLOOR_COMMERCIAL_MAP[s]
+    if s in COMMERCIAL_CODE_MAP:
+        return COMMERCIAL_CODE_MAP[s]
     if re.match(r'^\d[A-Z]$', s):
         return '0' + s
     if re.match(r'^\d$', s):
         padded = '0' + s
-        return FLOOR_COMMERCIAL_MAP.get(padded, padded)
+        return COMMERCIAL_CODE_MAP.get(padded, padded)
     return s
 
+def to_commercial_floor_code(raw_token: Any) -> str:
+    """Chuẩn hóa mã tầng thương mại."""
+    return to_commercial_code(raw_token)
+
 def to_axis_code(raw_token: Any) -> str:
-    """
-    Chuẩn hóa mã trục căn (Axis) trên mặt bằng tầng.
-    TUYỆT ĐỐI không áp dụng bảng né tầng phong thủy vào trục căn!
-    Trục 4 giữ nguyên là 04, trục 7 giữ nguyên là 07, trục 13 giữ nguyên là 13.
-    """
-    if raw_token is None:
-        return ''
-    s = str(raw_token).strip().upper()
-    s = re.sub(r'^(TRỤC|TRUC|CĂN|CAN|SỐ|SO)\s*', '', s, flags=re.IGNORECASE).strip()
-    if not s:
-        return ''
-    if re.match(r'^\d$', s):
-        return '0' + s
-    if re.match(r'^\d[A-Z]$', s):
-        return '0' + s
-    return s
+    """Chuẩn hóa mã trục căn / căn số theo quy tắc hệ mã thương mại (04->05A, 07->08A, 13->12A, 14->15A)."""
+    return to_commercial_code(raw_token)
 
 def sanitize_unit_code(raw_code: Any) -> str:
     """Làm sạch mã căn, loại bỏ emoji, ký tự trang trí, ghi chú trong ngoặc."""

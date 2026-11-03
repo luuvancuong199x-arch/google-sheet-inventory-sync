@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 _thread_local = threading.local()
 
-def _execute_with_retry(request_call, max_retries=3):
+def _execute_with_retry(request_call, max_retries=4):
     """Thực thi Google API request kèm cơ chế tự động chờ (Backoff) khi chạm quota 429."""
     for attempt in range(max_retries):
         try:
@@ -37,7 +37,7 @@ def _execute_with_retry(request_call, max_retries=3):
         except Exception as e:
             err_str = str(e)
             if ("429" in err_str or "RATE_LIMIT_EXCEEDED" in err_str) and attempt < max_retries - 1:
-                wait_time = (2 ** attempt) * 2 + 1
+                wait_time = 15 * (attempt + 1)
                 time.sleep(wait_time)
                 continue
             raise e
@@ -227,7 +227,8 @@ def parse_agency_grid_data(
     is_low_rise: bool,
     existing_pool_keys: set,
     today_str: str,
-    row_hidden_flags: Optional[List[bool]] = None
+    row_hidden_flags: Optional[List[bool]] = None,
+    agency_url: str = ""
 ) -> List[Dict[str, Any]]:
     """Phân tích dữ liệu ma trận ô (values, hyperlinks, màu sắc) thành danh sách căn hộ chuẩn hóa."""
     if not grid_rows or len(grid_rows) < 2:
@@ -396,6 +397,9 @@ def parse_agency_grid_data(
             if not has_area and not has_valid_price:
                 continue
 
+            clean_agency = agency_name.strip()
+            agency_cell_val = f'=HYPERLINK("{agency_url}"; "{clean_agency}")' if agency_url else clean_agency
+
             # Khớp chính xác 38 cột chuẩn Thấp tầng
             row_values = [
                 0, raw_zone, unit_code, raw_tcbg, unit_type, land_area, build_area,
@@ -406,7 +410,7 @@ def parse_agency_grid_data(
                 direction, frontage, floors, gift, desc, csbh_dict['csbh_date'],
                 bank, note, resolved_status, fund_group,
                 media['anh_chi_can'], media['anh_ptg'], media['anh_chi_can_ptg'],
-                agency_name, issue_date
+                agency_cell_val, issue_date
             ]
         else:
             raw_type = get_val(row, cm['unit_type']).strip()
@@ -425,6 +429,9 @@ def parse_agency_grid_data(
             if not has_area and not has_valid_price:
                 continue
 
+            clean_agency = agency_name.strip()
+            agency_cell_val = f'=HYPERLINK("{agency_url}"; "{clean_agency}")' if agency_url else clean_agency
+
             # Khớp chính xác 31 cột chuẩn Cao tầng
             row_values = [
                 0, unit_code, raw_zone, unit_type, direction, tower, floor, axis,
@@ -434,11 +441,13 @@ def parse_agency_grid_data(
                 raw_tcbg, gift, desc, csbh_dict['csbh_date'], bank,
                 media['anh_chi_can'], media['anh_ptg'],
                 note, resolved_status, fund_group,
-                agency_name, issue_date
+                agency_cell_val, issue_date
             ]
 
         scanned_units.append({
             "unit_key": unit_key,
+            "agency_name": clean_agency,
+            "agency_url": agency_url,
             "is_exclusive": is_exclusive,
             "status": resolved_status,
             "row_values": row_values
@@ -454,7 +463,8 @@ def fetch_agency_from_drive_xlsx(
     is_low_rise: bool,
     existing_pool_keys: set,
     today_str: str,
-    sheets_service: Any = None
+    sheets_service: Any = None,
+    agency_url: str = ""
 ) -> List[Dict[str, Any]]:
     """Tải và phân tích bảng hàng đại lý dạng file Excel (.xlsx) lưu trên Google Drive."""
     try:
@@ -525,7 +535,8 @@ def fetch_agency_from_drive_xlsx(
                 is_low_rise=is_low_rise,
                 existing_pool_keys=existing_pool_keys,
                 today_str=today_str,
-                row_hidden_flags=row_hidden_flags
+                row_hidden_flags=row_hidden_flags,
+                agency_url=agency_url
             )
             all_units.extend(parsed)
 
@@ -542,7 +553,8 @@ def fetch_agency_from_drive_xlsx(
                 project_key=project_key,
                 is_low_rise=is_low_rise,
                 existing_pool_keys=existing_pool_keys,
-                today_str=today_str
+                today_str=today_str,
+                agency_url=agency_url
             )
         logger.warning(f"Lỗi khi đọc bảng hàng Excel .xlsx {agency_name} ({file_id}): {e}")
         return []
@@ -555,7 +567,8 @@ def fetch_agency_from_google_sheet(
     project_key: str,
     is_low_rise: bool,
     existing_pool_keys: set,
-    today_str: str
+    today_str: str,
+    agency_url: str = ""
 ) -> List[Dict[str, Any]]:
     """Tải và phân tích bảng hàng đại lý dạng Google Sheets bản địa."""
     service = _get_thread_sheets_service(sheets_service)
@@ -632,7 +645,8 @@ def fetch_agency_from_google_sheet(
             is_low_rise=is_low_rise,
             existing_pool_keys=existing_pool_keys,
             today_str=today_str,
-            row_hidden_flags=row_hidden_flags
+            row_hidden_flags=row_hidden_flags,
+            agency_url=agency_url
         )
     except Exception as e:
         err_msg = str(e)
@@ -645,7 +659,8 @@ def fetch_agency_from_google_sheet(
                 is_low_rise=is_low_rise,
                 existing_pool_keys=existing_pool_keys,
                 today_str=today_str,
-                sheets_service=service
+                sheets_service=service,
+                agency_url=agency_url
             )
         logger.warning(f"Lỗi khi đọc bảng hàng đại lý {agency_name} ({file_id}): {e}")
         return []
@@ -662,6 +677,12 @@ def fetch_single_agency(
     agency_name = agency_info.get("agency", "Không rõ")
     file_id = agency_info.get("file_id")
     target_gid = agency_info.get("gid")
+    agency_url = agency_info.get("url", "")
+    if file_id:
+        if target_gid is not None:
+            agency_url = f"https://docs.google.com/spreadsheets/d/{file_id}/edit#gid={target_gid}"
+        elif not agency_url:
+            agency_url = f"https://docs.google.com/spreadsheets/d/{file_id}/edit"
 
     if agency_info.get("is_excel"):
         return fetch_agency_from_drive_xlsx(
@@ -672,7 +693,8 @@ def fetch_single_agency(
             is_low_rise=is_low_rise,
             existing_pool_keys=existing_pool_keys,
             today_str=today_str,
-            sheets_service=sheets_service
+            sheets_service=sheets_service,
+            agency_url=agency_url
         )
 
     return fetch_agency_from_google_sheet(
@@ -683,7 +705,8 @@ def fetch_single_agency(
         project_key=project_key,
         is_low_rise=is_low_rise,
         existing_pool_keys=existing_pool_keys,
-        today_str=today_str
+        today_str=today_str,
+        agency_url=agency_url
     )
 
 def fetch_all_agencies_for_project(

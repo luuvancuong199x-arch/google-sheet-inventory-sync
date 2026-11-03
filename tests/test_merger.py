@@ -115,3 +115,58 @@ def test_smart_upsert_purges_obsolete_rows_from_successful_agency():
     assert "LK-01" in keys
     assert "LK-88" in keys  # Preserved because Agency B failed
     assert "LK-99" not in keys  # Purged because Agency A refreshed successfully without it
+
+def test_sorting_by_agency_status_unit_code():
+    # 2 agencies: Agency A and Agency B
+    # Each agency has Còn hàng, Đang lock, Đã bán in mixed input order
+    scanned_units = [
+        # Agency B units
+        {
+            "unit_key": "B-03",
+            "is_exclusive": False,
+            "status": "Đã bán",
+            "row_values": [0, "Khu B", "B-03", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Đã bán"] + [""] * 4 + ['=HYPERLINK("http://b", "Agency B")', "03/11/2026"]
+        },
+        {
+            "unit_key": "B-01",
+            "is_exclusive": False,
+            "status": "Còn hàng",
+            "row_values": [0, "Khu B", "B-01", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng"] + [""] * 4 + ['=HYPERLINK("http://b", "Agency B")', "03/11/2026"]
+        },
+        {
+            "unit_key": "B-02",
+            "is_exclusive": False,
+            "status": "Đang lock",
+            "row_values": [0, "Khu B", "B-02", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Đang lock"] + [""] * 4 + ['=HYPERLINK("http://b", "Agency B")', "03/11/2026"]
+        },
+        # Agency A units
+        {
+            "unit_key": "A-03",
+            "is_exclusive": False,
+            "status": "Đã bán",
+            "row_values": [0, "Khu A", "A-03", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Đã bán"] + [""] * 4 + ["Agency A", "03/11/2026"]
+        },
+        {
+            "unit_key": "A-02",
+            "is_exclusive": False,
+            "status": "Đang lock",
+            "row_values": [0, "Khu A", "A-02", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Đang lock"] + [""] * 4 + ["Agency A", "03/11/2026"]
+        },
+        {
+            "unit_key": "A-01",
+            "is_exclusive": False,
+            "status": "Còn hàng",
+            "row_values": [0, "Khu A", "A-01", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng"] + [""] * 4 + ["Agency A", "03/11/2026"]
+        },
+    ]
+
+    final_rows = smart_upsert_pool({}, scanned_units, is_low_rise=True)
+    assert len(final_rows) == 6
+
+    # Verify Agency A group comes first, sorted Còn hàng -> Đang lock -> Đã bán
+    expected_order = ["A-01", "A-02", "A-03", "B-01", "B-02", "B-03"]
+    actual_order = [r[2] for r in final_rows]
+    assert actual_order == expected_order
+
+    # Verify STT 1 to 6
+    assert [r[0] for r in final_rows] == [1, 2, 3, 4, 5, 6]

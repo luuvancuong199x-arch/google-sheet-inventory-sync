@@ -10,6 +10,48 @@ import re
 from typing import Dict, List, Any, Optional
 from src.normalizer import sanitize_unit_code
 
+def extract_clean_agency_name(val: Any) -> str:
+    """Trích xuất tên đại lý thuần từ chuỗi thông thường hoặc từ công thức =HYPERLINK('url', 'Tên đại lý')."""
+    if val is None:
+        return ""
+    val_str = str(val).strip()
+    m = re.search(r'HYPERLINK\([^,;]+[,;]\s*["\']([^"\']+)["\']\)', val_str, re.IGNORECASE)
+    if m:
+        return m.group(1).strip()
+    return val_str
+
+def natural_sort_key(s: str) -> list:
+    """Tách chuỗi và số để sắp xếp tự nhiên A-Z (VD: LK-2 đứng trước LK-10)."""
+    return [int(text) if text.isdigit() else text.lower() for text in re.split(r'(\d+)', str(s or ''))]
+
+def make_sort_key(row: List[Any], is_low_rise: bool) -> tuple:
+    """
+    Tạo khóa sắp xếp đa cấp theo Phương án 1:
+    - Cấp 1: Gom theo Đại lý (A-Z)
+    - Cấp 2: Trong từng Đại lý: Trạng thái (1: Còn hàng, 2: Đang lock, 3: Đã bán)
+    - Cấp 3: Trong cùng trạng thái: Mã căn A-Z (natural sort)
+    """
+    agency_col_idx = 36 if is_low_rise else 29
+    status_col_idx = 31 if is_low_rise else 27
+    unit_code_col_idx = 2 if is_low_rise else 1
+
+    agency_raw = str(row[agency_col_idx] if len(row) > agency_col_idx else '')
+    clean_agency = extract_clean_agency_name(agency_raw).upper()
+
+    status_raw = str(row[status_col_idx] if len(row) > status_col_idx else '').strip().lower()
+    if 'còn' in status_raw or 'con' in status_raw:
+        status_rank = 1
+    elif 'lock' in status_raw:
+        status_rank = 2
+    elif 'bán' in status_raw or 'ban' in status_raw or 'sold' in status_raw:
+        status_rank = 3
+    else:
+        status_rank = 4
+
+    unit_code_raw = str(row[unit_code_col_idx] if len(row) > unit_code_col_idx else '').strip()
+
+    return (clean_agency, status_rank, natural_sort_key(unit_code_raw))
+
 def count_filled_prices(row_values: List[Any], is_low_rise: bool) -> int:
     """Đếm số trường giá đã được điền thông tin."""
     start_idx = 7 if is_low_rise else 12
@@ -100,11 +142,12 @@ def smart_upsert_pool(
     master_pool = {}
     for key, data in existing_pool_by_key.items():
         row_vals = list(data.get("row_values", []))
-        old_agency = str(row_vals[agency_col_idx] if len(row_vals) > agency_col_idx else '').strip()
-        if successful_agencies and old_agency in successful_agencies:
+        old_agency_raw = str(row_vals[agency_col_idx] if len(row_vals) > agency_col_idx else '').strip()
+        clean_old_agency = extract_clean_agency_name(old_agency_raw)
+        if successful_agencies and clean_old_agency in successful_agencies:
             continue
         # Bỏ qua các dòng dữ liệu rác cũ bị lệch cột ngày vào cột đại lý
-        if re.match(r'^\d{2}/\d{2}/\d{4}$', old_agency):
+        if re.match(r'^\d{2}/\d{2}/\d{4}$', clean_old_agency):
             continue
         master_pool[key] = row_vals
 
@@ -123,14 +166,11 @@ def smart_upsert_pool(
                 scanned_row[issue_date_col_idx] = today_str
             master_pool[key] = scanned_row
 
-    # 4. Xuất danh sách dòng và đánh số thứ tự (STT) từ 1 đến N
-    final_rows = []
-    # Sắp xếp các căn theo mã căn để bảng hàng luôn ngay ngắn
-    sorted_keys = sorted(master_pool.keys())
-    for idx, key in enumerate(sorted_keys):
-        row = master_pool[key]
-        if row:
-            row[0] = idx + 1
-            final_rows.append(row)
+    # 4. Xuất danh sách dòng, sắp xếp đa cấp (Đại lý -> Trạng thái -> Mã căn A-Z) và đánh STT 1..N
+    final_rows = [row for row in master_pool.values() if row]
+    final_rows.sort(key=lambda r: make_sort_key(r, is_low_rise))
+
+    for idx, row in enumerate(final_rows):
+        row[0] = idx + 1
 
     return final_rows

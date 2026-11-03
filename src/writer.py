@@ -4,6 +4,7 @@ Sử dụng Google Sheets API v4 batchUpdate để ghi dữ liệu và định d
 Tuyệt đối không dùng clearContents() để tránh rủi ro mất trắng trang tính khi có sự cố.
 """
 
+import re
 import logging
 from typing import Dict, List, Any
 from src.normalizer import sanitize_unit_code
@@ -69,11 +70,18 @@ def read_existing_target_pool(
             if not unit_code:
                 continue
             key = sanitize_unit_code(unit_code)
-            if key:
-                existing_pool[key] = {
-                    "unit_key": key,
-                    "row_values": row
-                }
+            if not key:
+                continue
+            # Lọc bỏ các dòng banner / tiêu đề phân mục không phải mã căn thực tế
+            if not re.search(r'\d', key):
+                continue
+            if re.search(r'^(phân\s*khu|bảng\s*hàng|đơn\s*lập|song\s*lập|liền\s*kề|biệt\s*thự|shophouse|tổng\s*cộng|căn\s*hộ|ghi\s*chú|demo|test|đlmc|dlmc|lp)$', key, re.IGNORECASE):
+                continue
+
+            existing_pool[key] = {
+                "unit_key": key,
+                "row_values": row
+            }
 
         return existing_pool
     except Exception as e:
@@ -109,8 +117,7 @@ def write_normalized_inventory(
         for sh in meta.get('sheets', []):
             if sh['properties']['sheetId'] == sheet_id:
                 current_total_rows = sh['properties']['gridProperties']['rowCount']
-                needed_rows = len(all_values) + 10
-                if current_total_rows > needed_rows + 50:
+                if current_total_rows > len(all_values):
                     clear_range = f"'{sheet_name}'!A{len(all_values) + 1}:AL{current_total_rows}"
                     sheets_service.spreadsheets().values().clear(
                         spreadsheetId=spreadsheet_id,

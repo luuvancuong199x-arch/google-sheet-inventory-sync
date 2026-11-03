@@ -87,8 +87,15 @@ def map_columns_from_headers(header_cells: List[str]) -> Dict[str, int]:
     col_map["frontage"] = find_col([r'(mặt tiền|mat tien|rộng mặt tiền)'])
     col_map["floors"] = find_col([r'(số tầng|so tang|tầng cao)'])
     col_map["gia_chua_vat"] = find_col([r'(chưa gồm vat|chưa vat|trước vat|giá gốc chưa vat)'])
-    col_map["vat_tong"] = find_col([r'^vat(\s*\(tổng\))?$', r'tiền vat'])
-    col_map["kpbt"] = find_col([r'^(kpbt|kinh phí bảo trì)', r'kpbt'])
+    col_map["vat_tong"] = find_col([
+        r'^vat(\s*\(tổng\))?$',
+        r'^tiền vat$',
+        r'^(?!.*(giá|tổng cộng|chưa gồm|gồm vat)).*(\bvat\b)'
+    ])
+    col_map["kpbt"] = find_col([
+        r'^(kpbt|kinh phí bảo trì|kpbt\s*\(tổng\)|kinh phí bảo trì\s*\(kpbt\))$',
+        r'^(?!.*(giá|tổng cộng|chưa gồm|gồm vat)).*(kpbt|kinh phí bảo trì)'
+    ])
     col_map["gia_full"] = find_col([r'(gồm vat|giá full|tổng giá|giá niêm yết|giá bán gồm vat)', r'^(giá bán|giá|tổng giá)$'])
     col_map["gia_vay"] = find_col([r'(giá vay|vay nh|htls|vay 70)'])
     col_map["gia_tttd"] = find_col([r'(tiến độ|tttđ|tttd|thanh toán chuẩn)'])
@@ -196,6 +203,14 @@ def parse_agency_grid_data(
         if not unit_code or len(unit_code) < 2:
             continue
 
+        # Lọc bỏ các dòng banner / tiêu đề phân mục không phải mã căn thực tế
+        if not re.search(r'\d', unit_code):
+            continue
+        if re.search(r'^(phân\s*khu|bảng\s*hàng|đơn\s*lập|song\s*lập|liền\s*kề|biệt\s*thự|shophouse|tổng\s*cộng|căn\s*hộ|ghi\s*chú|demo|test|đlmc|dlmc|lp)$', unit_code, re.IGNORECASE):
+            continue
+        if re.search(r'^(phân\s*khu|bảng\s*hàng|đơn\s*lập|song\s*lập|liền\s*kề|biệt\s*thự|shophouse|tổng\s*cộng|căn\s*hộ|ghi\s*chú|demo|test|đlmc|dlmc|lp)', raw_unit, re.IGNORECASE):
+            continue
+
         raw_zone = get_val(row, cm['zone']).strip()
         tower = get_val(row, cm['tower']).strip()
         floor = get_val(row, cm['floor']).strip()
@@ -278,6 +293,12 @@ def parse_agency_grid_data(
             frontage = normalize_numeric_or_null(get_val(row, cm['frontage']))
             floors = normalize_numeric_or_null(get_val(row, cm['floors']), is_integer=True)
 
+            # Loại bỏ các dòng trống không có cả diện tích lẫn giá
+            has_area = bool(land_area or build_area)
+            has_price = bool(gia_full or gia_chua_vat or gia_vay or gia_tttd or gia_tts)
+            if not has_area and not has_price:
+                continue
+
             # Khớp chính xác 38 cột chuẩn Thấp tầng
             row_values = [
                 0, raw_zone, unit_code, raw_tcbg, unit_type, land_area, build_area,
@@ -306,6 +327,12 @@ def parse_agency_grid_data(
             gia_tts = normalize_price_to_vnd(get_val(row, cm['gia_tts']))
             don_gia_m2 = normalize_price_to_vnd(get_val(row, cm['don_gia_m2']), unit_hint='M2')
             raw_tcbg = get_val(row, cm['tcbg']).strip()
+
+            # Loại bỏ các dòng trống không có cả diện tích lẫn giá
+            has_area = bool(net_area or gross_area)
+            has_price = bool(gia_full or gia_chua_vat or gia_vay or gia_tttd or gia_tts)
+            if not has_area and not has_price:
+                continue
 
             # Khớp chính xác 31 cột chuẩn Cao tầng
             row_values = [

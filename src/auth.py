@@ -14,16 +14,37 @@ SCOPES = [
     'https://www.googleapis.com/auth/drive'
 ]
 
+def _load_env_if_needed():
+    for p in [".env", os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env")]:
+        if os.path.exists(p):
+            try:
+                with open(p, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith("#") and "=" in line:
+                            k, v = line.split("=", 1)
+                            k = k.strip()
+                            v = v.strip().strip('"').strip("'")
+                            if k not in os.environ:
+                                os.environ[k] = v
+                break
+            except Exception:
+                pass
+
 def get_credentials():
     """
     Lấy thông tin xác thực Service Account.
-    Ưu tiên 1: Biến môi trường GCP_SA_KEY (chứa chuỗi JSON, thiết lập trên GitHub Secrets).
+    Ưu tiên 1: Biến môi trường GCP_SA_KEY (chứa chuỗi JSON hoặc đường dẫn file).
     Ưu tiên 2: Biến môi trường GOOGLE_APPLICATION_CREDENTIALS (chứa đường dẫn file).
-    Ưu tiên 3: File 'credentials.json' nằm ở thư mục gốc dự án (khi chạy test local).
+    Ưu tiên 3: Các đường dẫn chuẩn hóa (credentials.json, Windows/Linux secret path).
     """
-    # 1. GitHub Actions Secrets
+    _load_env_if_needed()
+
+    # 1. Biến môi trường GCP_SA_KEY
     sa_json = os.environ.get('GCP_SA_KEY')
     if sa_json:
+        if os.path.exists(sa_json):
+            return Credentials.from_service_account_file(sa_json, scopes=SCOPES)
         try:
             clean_json = sa_json.strip().lstrip('\ufeff')
             info = json.loads(clean_json)
@@ -31,9 +52,9 @@ def get_credentials():
         except Exception as e:
             raise ValueError(f"Không thể phân tích dữ liệu JSON từ biến môi trường GCP_SA_KEY: {e}")
 
-    # 2. File đường dẫn
+    # 2. File đường dẫn (từ GOOGLE_APPLICATION_CREDENTIALS hoặc credentials.json)
     creds_path = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS', 'credentials.json')
-    if os.path.exists(creds_path):
+    if creds_path and os.path.exists(creds_path):
         return Credentials.from_service_account_file(creds_path, scopes=SCOPES)
 
     return None

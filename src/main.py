@@ -44,9 +44,14 @@ def ensure_default_local_credentials():
     """Tự động nạp file chứng chỉ mặc định của hệ thống VHUB nếu biến môi trường chưa được gán."""
     if os.environ.get("GCP_SA_KEY") or os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"):
         return
-    default_vhub_sa = r"C:\Users\admin\.vhub-credentials\vhub-sheet-syn.json"
-    if os.path.exists(default_vhub_sa):
-        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = default_vhub_sa
+    candidates = [
+        r"C:\Users\admin\.vhub-credentials\vhub-sheet-syn.json",
+        "/root/vhub/secrets/vhub-sheet-syn.json",
+    ]
+    for cp in candidates:
+        if os.path.exists(cp):
+            os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = cp
+            break
 
 
 def sync_single_project(

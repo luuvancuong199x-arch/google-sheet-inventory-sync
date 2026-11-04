@@ -99,7 +99,51 @@ def test_no_price_becomes_sold():
     assert by_key["LK-05"] == "Đã bán"
     assert by_key["LK-06"] == "Còn hàng"
 
-def test_tab_name_exclusive_detection():
+def test_agency_without_exclusive_column_defaults_to_exclusive():
+    headers = ["STT", "Phân khu", "Mã căn", "DT đất", "Giá bán"]
+    grid_rows = [
+        [{"formattedValue": h} for h in headers],
+        [{"formattedValue": "1"}, {"formattedValue": "Khu A"}, {"formattedValue": "LK-01"}, {"formattedValue": "100"}, {"formattedValue": "5000000000"}],
+        [{"formattedValue": "2"}, {"formattedValue": "Khu A"}, {"formattedValue": "LK-02"}, {"formattedValue": "120"}, {"formattedValue": "6000000000"}],
+    ]
+    parsed = parse_agency_grid_data(
+        grid_rows,
+        agency_name="BHS PARTNERS",
+        project_key="test_project",
+        is_low_rise=True,
+        existing_pool_keys=set(),
+        today_str="04/11/2026",
+        sheet_title="Sheet 1"
+    )
+    assert len(parsed) == 2
+    assert parsed[0]["is_exclusive"] is True
+    assert parsed[0]["row_values"][32] == "Độc quyền"
+    assert parsed[1]["is_exclusive"] is True
+    assert parsed[1]["row_values"][32] == "Độc quyền"
+
+def test_agency_with_dedicated_exclusive_column_classifies_row_by_row():
+    headers = ["STT", "Phân khu", "Mã căn", "DT đất", "Giá bán", "Độc quyền"]
+    grid_rows = [
+        [{"formattedValue": h} for h in headers],
+        [{"formattedValue": "1"}, {"formattedValue": "Khu A"}, {"formattedValue": "LK-01"}, {"formattedValue": "100"}, {"formattedValue": "5000000000"}, {"formattedValue": "ĐQ"}],
+        [{"formattedValue": "2"}, {"formattedValue": "Khu A"}, {"formattedValue": "LK-02"}, {"formattedValue": "120"}, {"formattedValue": "6000000000"}, {"formattedValue": ""}],
+    ]
+    parsed = parse_agency_grid_data(
+        grid_rows,
+        agency_name="NSL",
+        project_key="test_project",
+        is_low_rise=True,
+        existing_pool_keys=set(),
+        today_str="04/11/2026",
+        sheet_title="Sheet 1"
+    )
+    assert len(parsed) == 2
+    assert parsed[0]["is_exclusive"] is True
+    assert parsed[0]["row_values"][32] == "Độc quyền"
+    assert parsed[1]["is_exclusive"] is False
+    assert parsed[1]["row_values"][32] == "Quỹ chung"
+
+def test_general_pool_is_always_general_fund():
     headers = ["STT", "Phân khu", "Mã căn", "DT đất", "Giá bán"]
     grid_rows = [
         [{"formattedValue": h} for h in headers],
@@ -107,15 +151,16 @@ def test_tab_name_exclusive_detection():
     ]
     parsed = parse_agency_grid_data(
         grid_rows,
-        agency_name="TEST_AGENCY",
+        agency_name="Quỹ chung",
         project_key="test_project",
         is_low_rise=True,
         existing_pool_keys=set(),
-        today_str="03/11/2026",
-        sheet_title="Giỏ Độc quyền"
+        today_str="04/11/2026",
+        sheet_title="Sheet 1",
+        is_general_pool=True
     )
     assert len(parsed) == 1
-    assert parsed[0]["is_exclusive"] is True
-    # Column 32 in low-rise is 'Nhóm quỹ'
-    assert parsed[0]["row_values"][32] == "Độc quyền"
+    assert parsed[0]["is_exclusive"] is False
+    assert parsed[0]["row_values"][32] == "Quỹ chung"
+
 

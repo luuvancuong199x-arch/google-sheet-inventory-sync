@@ -5,13 +5,14 @@ Sắp hết hạn mốc 29 ngày, Tổng quỹ đang quản lý) và bảng danh
 """
 
 import os
+import re
 import json
 import logging
 import time
 from datetime import datetime
 from typing import Dict, Any, List, Optional
 from src.config import TARGET_PROJECTS
-from src.master_reader import get_project_agency_links
+from src.master_reader import get_project_agency_links, get_agency_links_from_target_sheet
 from src.fetcher import _execute_with_retry
 from src.merger import extract_clean_agency_name
 
@@ -514,13 +515,18 @@ def update_project_agency_directory(
         else:
             diagnostic_lookup = {}
 
-    # 1. Lấy danh sách link đại lý từ Master Sheet
-    if sub_tabs:
-        agency_links = []
-        for st in sub_tabs:
-            agency_links.extend(get_project_agency_links(sheets_service, project_key, sub_tab=st))
+    # 1. Ưu tiên lấy danh sách link đại lý trực tiếp từ tab 'Danh mục Link Đại lý' của dự án đích
+    target_agency_links = get_agency_links_from_target_sheet(sheets_service, spreadsheet_id)
+    if target_agency_links:
+        agency_links = target_agency_links
     else:
-        agency_links = get_project_agency_links(sheets_service, project_key)
+        # Fallback Master Sheet nếu tab đích hoàn toàn trống
+        if sub_tabs:
+            agency_links = []
+            for st in sub_tabs:
+                agency_links.extend(get_project_agency_links(sheets_service, project_key, sub_tab=st))
+        else:
+            agency_links = get_project_agency_links(sheets_service, project_key)
 
     if not agency_links:
         logger.info(f"Không có link đại lý nào cho dự án {project_key}")
@@ -577,11 +583,19 @@ def update_project_agency_directory(
         header_row
     ]
 
-    for idx, ag in enumerate(agency_links, 1):
+    distributor_counter = 1
+    for ag in agency_links:
         ag_name = ag['agency']
         url = ag['url']
         gid = ag.get('gid')
         sub = ag.get('sub') or 'Bảng hàng'
+
+        is_qc = bool(ag.get('is_general_pool') or re.search(r'quỹ chung|quy chung|quỹ cđt|quy cdt', ag_name, re.IGNORECASE))
+        if is_qc:
+            stt_str = "QC"
+        else:
+            stt_str = str(distributor_counter)
+            distributor_counter += 1
 
         # Khóa tra cứu trong diagnostic_lookup
         diag_key = (ag_name.strip().upper(), url.strip(), (sub or '').strip().upper())
@@ -608,7 +622,32 @@ def update_project_agency_directory(
                 sync_stats_lookup.get(clean_ag)
             )
 
-        if ag_st and (ag_st.get('total_units', 0) > 0 or ag_st.get('count', 0) > 0):
+        if is_qc:
+            if not url:
+                status_text = "Chờ cấu hình"
+                desc_text = "Chưa gắn link nguồn. Vui lòng dán link bảng tính Quỹ chung có chứa GID vào Cột D."
+                count = 0
+                ag_new = 0
+                ag_sold = 0
+                ag_expiring = 0
+            elif ag_st and (ag_st.get('total_units', 0) > 0 or ag_st.get('count', 0) > 0):
+                count = ag_st.get('total_units') or ag_st.get('count', 0)
+                avail = ag_st.get('avail', 0)
+                lock = ag_st.get('lock', 0)
+                sold = ag_st.get('sold', 0)
+                ag_new = ag_st.get('new_today', 0)
+                ag_sold = ag_st.get('sold_today', 0)
+                ag_expiring = ag_st.get('expiring_soon', 0)
+                status_text = "Đang hoạt động"
+                desc_text = f"Đã đồng bộ {count} căn Quỹ chung ({avail} còn hàng, {lock} lock, {sold} đã bán)."
+            else:
+                status_text = "Đang hoạt động"
+                desc_text = "Đã kết nối nguồn Quỹ chung (Các căn trong giỏ đang được đại lý phân phối độc quyền quản lý)."
+                count = 0
+                ag_new = 0
+                ag_sold = 0
+                ag_expiring = 0
+        elif ag_st and (ag_st.get('total_units', 0) > 0 or ag_st.get('count', 0) > 0):
             count = ag_st.get('total_units') or ag_st.get('count', 0)
             avail = ag_st.get('avail', 0)
             lock = ag_st.get('lock', 0)
@@ -661,7 +700,7 @@ def update_project_agency_directory(
             ag_expiring = 0
 
         rows_data.append([
-            idx,
+            stt_str,
             ag_name,
             sub,
             url,

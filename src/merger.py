@@ -26,17 +26,21 @@ def natural_sort_key(s: str) -> list:
 
 def make_sort_key(row: List[Any], is_low_rise: bool) -> tuple:
     """
-    Tạo khóa sắp xếp đa cấp theo Phương án 1:
-    - Cấp 1: Gom theo Đại lý (A-Z)
-    - Cấp 2: Trong từng Đại lý: Trạng thái (1: Còn hàng, 2: Đang lock, 3: Đã bán)
-    - Cấp 3: Trong cùng trạng thái: Mã căn A-Z (natural sort)
+    Tạo khóa sắp xếp đa cấp:
+    - Cấp 1: Gom theo nhóm Quỹ (0: Đại lý phân phối A-Z, 1: Quỹ chung - đưa xuống cuối bảng)
+    - Cấp 2: Tên Đại lý (A-Z)
+    - Cấp 3: Trong từng Đại lý/Quỹ chung: Trạng thái (1: Còn hàng, 2: Đang lock, 3: Đã bán)
+    - Cấp 4: Trong cùng trạng thái: Mã căn A-Z (natural sort)
     """
     agency_col_idx = 36 if is_low_rise else 29
     status_col_idx = 31 if is_low_rise else 27
     unit_code_col_idx = 2 if is_low_rise else 1
 
     agency_raw = str(row[agency_col_idx] if len(row) > agency_col_idx else '')
-    clean_agency = extract_clean_agency_name(agency_raw).upper()
+    clean_agency = extract_clean_agency_name(agency_raw).strip().upper()
+
+    is_qc = bool(re.search(r'quỹ chung|quy chung|quỹ cđt|quy cdt', clean_agency, re.IGNORECASE))
+    group_rank = 1 if is_qc else 0
 
     status_raw = str(row[status_col_idx] if len(row) > status_col_idx else '').strip().lower()
     if 'còn' in status_raw or 'con' in status_raw:
@@ -50,7 +54,7 @@ def make_sort_key(row: List[Any], is_low_rise: bool) -> tuple:
 
     unit_code_raw = str(row[unit_code_col_idx] if len(row) > unit_code_col_idx else '').strip()
 
-    return (clean_agency, status_rank, natural_sort_key(unit_code_raw))
+    return (group_rank, clean_agency, status_rank, natural_sort_key(unit_code_raw))
 
 def count_filled_prices(row_values: List[Any], is_low_rise: bool) -> int:
     """Đếm số trường giá đã được điền thông tin."""
@@ -63,21 +67,31 @@ def count_filled_prices(row_values: List[Any], is_low_rise: bool) -> int:
             count += 1
     return count
 
-def get_candidate_rank(item: Dict[str, Any], is_low_rise: bool) -> tuple:
+def get_candidate_rank(
+    item: Dict[str, Any],
+    is_low_rise: bool,
+    existing_owner: str = "",
+    is_within_exclusive_period: bool = False
+) -> tuple:
     """
     Xác định mức độ ưu tiên giữa các nguồn khi deduplicate cùng 1 mã căn:
     1. Có giá hợp lệ (Giá chưa VAT hoặc Giá full) -> Luôn ưu tiên hơn nguồn không có giá.
     2. Nguồn Độc quyền -> Ưu tiên hơn nguồn Quỹ chung.
-    3. Nguồn có trạng thái Khả dụng ('Còn hàng' hoặc 'Đang lock') -> Ưu tiên hơn nguồn đánh dấu 'Đã bán'.
-    4. Số lượng trường giá được điền đầy đủ hơn (độ chi tiết dữ liệu).
+    3. Đại lý đang nắm giữ độc quyền hợp lệ (< 30 ngày) -> Ưu tiên bảo vệ không bị đại lý khác ghi đè.
+    4. Nguồn có trạng thái Khả dụng ('Còn hàng' hoặc 'Đang lock') -> Ưu tiên hơn nguồn đánh dấu 'Đã bán'.
+    5. Số lượng trường giá được điền đầy đủ hơn (độ chi tiết dữ liệu).
     """
     chua_idx = 7 if is_low_rise else 13
     full_idx = 10 if is_low_rise else 14
     has_valid_price = bool(str(item["row_values"][chua_idx] or '').strip() or str(item["row_values"][full_idx] or '').strip())
     is_exclusive = bool(item.get("is_exclusive"))
+
+    item_agency = extract_clean_agency_name(item.get("agency_name") or '').strip().upper()
+    is_current_protected_owner = bool(is_within_exclusive_period and existing_owner and item_agency == existing_owner)
+
     is_active = (item.get("status") in ["Còn hàng", "Đang lock"])
     price_count = count_filled_prices(item["row_values"], is_low_rise)
-    return (has_valid_price, is_exclusive, is_active, price_count)
+    return (has_valid_price, is_exclusive, is_current_protected_owner, is_active, price_count)
 
 def smart_upsert_pool(
     existing_pool_by_key: Dict[str, Dict[str, Any]],
@@ -106,12 +120,26 @@ def smart_upsert_pool(
         if not key:
             continue
 
+        # Kiểm tra thông tin chủ sở hữu cũ trong existing_pool
+        existing_owner = ""
+        is_within_exclusive_period = False
+        if key in existing_pool_by_key:
+            old_row = existing_pool_by_key[key].get("row_values", [])
+            old_ag_raw = old_row[agency_col_idx] if len(old_row) > agency_col_idx else ""
+            existing_owner = extract_clean_agency_name(old_ag_raw).strip().upper()
+            old_issue = old_row[issue_date_col_idx] if len(old_row) > issue_date_col_idx else ""
+            if old_issue:
+                exp_info = compute_expiry_warning(old_issue)
+                days_el = exp_info.get("days_elapsed")
+                if days_el is not None and days_el < 30:
+                    is_within_exclusive_period = True
+
         if key not in best_scanned_by_key:
             best_scanned_by_key[key] = item
         else:
             cur = best_scanned_by_key[key]
-            item_rank = get_candidate_rank(item, is_low_rise)
-            cur_rank = get_candidate_rank(cur, is_low_rise)
+            item_rank = get_candidate_rank(item, is_low_rise, existing_owner, is_within_exclusive_period)
+            cur_rank = get_candidate_rank(cur, is_low_rise, existing_owner, is_within_exclusive_period)
 
             if item_rank > cur_rank:
                 best_scanned_by_key[key] = item
@@ -158,8 +186,21 @@ def smart_upsert_pool(
         while len(scanned_row) < target_len:
             scanned_row.append("")
 
-        if key in master_pool:
-            # Nếu căn đã có: Cập nhật thông tin, nhưng giữ nguyên Ngày cấp hàng ban đầu nếu nguồn này để trống
+        if key in existing_pool_by_key:
+            old_row = existing_pool_by_key[key].get("row_values", [])
+            old_agency = extract_clean_agency_name(old_row[agency_col_idx] if len(old_row) > agency_col_idx else "").strip().upper()
+            new_agency = extract_clean_agency_name(scanned_row[agency_col_idx] if len(scanned_row) > agency_col_idx else "").strip().upper()
+            old_issue_date = old_row[issue_date_col_idx] if len(old_row) > issue_date_col_idx else ""
+
+            if old_agency and new_agency and old_agency != new_agency:
+                # Điều chuyển giỏ hàng sang đại lý mới hoặc Quỹ chung:
+                # Reset ngày cấp hàng = ngày hiện tại để tính chu kỳ 30 ngày mới cho chủ sở hữu mới
+                if today_str:
+                    scanned_row[issue_date_col_idx] = today_str
+            else:
+                if not scanned_row[issue_date_col_idx] and old_issue_date:
+                    scanned_row[issue_date_col_idx] = old_issue_date
+        elif key in master_pool:
             old_issue_date = master_pool[key][issue_date_col_idx] if len(master_pool[key]) > issue_date_col_idx else ""
             if not scanned_row[issue_date_col_idx] and old_issue_date:
                 scanned_row[issue_date_col_idx] = old_issue_date

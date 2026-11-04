@@ -167,6 +167,71 @@ def _get_master_workbook_openpyxl():
     _MASTER_WORKBOOK_CACHE = openpyxl.load_workbook(fh, data_only=True)
     return _MASTER_WORKBOOK_CACHE
 
+def get_agency_links_from_target_sheet(
+    sheets_service: Any,
+    spreadsheet_id: str,
+    sub_tab: Optional[str] = None
+) -> List[Dict[str, Any]]:
+    """
+    Đọc danh mục đại lý và link trực tiếp từ tab 'Danh mục Link Đại lý' của bảng tính dự án đích.
+    Tab này là Nguồn Quản Lý Duy Nhất (Single Source of Truth).
+    Hỗ trợ nhận diện 'Quỹ chung' (is_general_pool=True) và trích xuất đúng GID.
+    """
+    try:
+        resp = sheets_service.spreadsheets().values().get(
+            spreadsheetId=spreadsheet_id,
+            range="'Danh mục Link Đại lý'!A6:D250",
+            valueRenderOption='FORMATTED_VALUE'
+        ).execute()
+        rows = resp.get('values', [])
+        if not rows:
+            return []
+
+        results = []
+        seen = set()
+
+        for row in rows:
+            if len(row) < 4:
+                continue
+            agency_name = str(row[1] or '').strip()
+            sub_val = str(row[2] or '').strip()
+            link_cell = str(row[3] or '').strip()
+
+            if not agency_name or not link_cell:
+                continue
+
+            # Kiểm tra lọc sub_tab nếu có (ví dụ MAS CAO TẦNG: MGC, MEL, HSG, LEP)
+            if sub_tab and sub_val and sub_val.upper() != 'BẢNG HÀNG' and sub_tab.upper() != sub_val.upper():
+                continue
+
+            is_general_pool = bool(re.search(r'quỹ chung|quy chung|quỹ cđt|quy cdt', agency_name, re.IGNORECASE))
+
+            parts = re.split(r'[;\n]+|,\s*(?=https?://)|\s+(?=https?://)', link_cell)
+            for part in parts:
+                for parsed in parse_spreadsheet_url_and_gids(part):
+                    key = (
+                        agency_name.upper().strip(),
+                        parsed["spreadsheet_id"],
+                        parsed["gid"],
+                        (sub_val or "").upper()
+                    )
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    results.append({
+                        "agency": agency_name,
+                        "file_id": parsed["spreadsheet_id"],
+                        "gid": parsed["gid"],
+                        "url": parsed["url"],
+                        "sub": sub_val if sub_val and sub_val.upper() != 'BẢNG HÀNG' else None,
+                        "is_excel": parsed["is_excel"],
+                        "is_general_pool": is_general_pool
+                    })
+        return results
+    except Exception as e:
+        logger.warning(f"Không thể đọc danh mục từ tab 'Danh mục Link Đại lý' ({spreadsheet_id}): {e}")
+        return []
+
 def get_project_agency_links(
     sheets_service: Any,
     project_key: str,

@@ -20,7 +20,7 @@ if hasattr(sys.stdout, 'reconfigure'):
 
 from src.config import TARGET_PROJECTS, LOW_RISE_HEADERS, HIGH_RISE_HEADERS
 from src.auth import get_sheets_service
-from src.master_reader import get_project_agency_links
+from src.master_reader import get_project_agency_links, get_agency_links_from_target_sheet
 from src.fetcher import fetch_all_agencies_for_project
 from src.merger import smart_upsert_pool
 from src.writer import read_existing_target_pool, write_normalized_inventory
@@ -64,9 +64,13 @@ def sync_single_project(
             existing_pool = read_existing_target_pool(
                 sheets_service, target_id, sub_tab, is_low_rise=False
             )
-            agency_links = get_project_agency_links(
-                sheets_service, project_key, sub_tab=sub_tab
+            agency_links = get_agency_links_from_target_sheet(
+                sheets_service, target_id, sub_tab=sub_tab
             )
+            if not agency_links:
+                agency_links = get_project_agency_links(
+                    sheets_service, project_key, sub_tab=sub_tab
+                )
             logger.info(f"Tìm thấy {len(agency_links)} link đại lý cho phân khu {sub_tab}")
 
             scanned, successful_agencies = fetch_all_agencies_for_project(
@@ -108,9 +112,13 @@ def sync_single_project(
         existing_pool = read_existing_target_pool(
             sheets_service, target_id, target_tab_name, is_low_rise=is_low_rise
         )
-        agency_links = get_project_agency_links(
-            sheets_service, project_key, sub_tab=None
+        agency_links = get_agency_links_from_target_sheet(
+            sheets_service, target_id, sub_tab=None
         )
+        if not agency_links:
+            agency_links = get_project_agency_links(
+                sheets_service, project_key, sub_tab=None
+            )
         logger.info(f"Tìm thấy {len(agency_links)} link đại lý cho dự án {project_name}")
 
         scanned, successful_agencies = fetch_all_agencies_for_project(

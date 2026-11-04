@@ -188,6 +188,10 @@ def map_columns_from_headers(header_cells: List[str]) -> Dict[str, int]:
     col_map["bank"] = find_col([r'(ngân hàng|ngan hang|bank)'])
     col_map["note"] = find_col([r'(ghi chú|ghi chu|note)'])
     col_map["status"] = find_col([r'(trạng thái|trang thai|tình trạng)'])
+    col_map["dedicated_exclusive"] = find_col([
+        r'(độc\s*quyền|quỹ\s*độc\s*quyền|căn\s*độc\s*quyền|hàng\s*độc\s*quyền|quỹ\s*độc\s*quyền)',
+        r'(\bđq\b|\bdq\b|\bqđq\b|\bqdq\b|\bdqd\b)'
+    ])
     col_map["fund_group"] = find_col([r'(nhóm quỹ|nhom quy|loại quỹ|nguồn quỹ|độc quyền|^quỹ$)'])
     col_map["chi_can"] = find_col([r'(ảnh chỉ căn|chỉ căn|mặt bằng|layout|hình ảnh|link ảnh)'])
     col_map["ptg"] = find_col([r'(phiếu tính giá|ptg|bảng tính|link ptg|tài liệu)'])
@@ -233,7 +237,8 @@ def parse_agency_grid_data(
     row_hidden_flags: Optional[List[bool]] = None,
     agency_url: str = "",
     sub_tab: str = "",
-    sheet_title: str = ""
+    sheet_title: str = "",
+    is_general_pool: bool = False
 ) -> List[Dict[str, Any]]:
     """Phân tích dữ liệu ma trận ô (values, hyperlinks, màu sắc) thành danh sách căn hộ chuẩn hóa."""
     if not grid_rows or len(grid_rows) < 2:
@@ -356,10 +361,26 @@ def parse_agency_grid_data(
         else:
             resolved_status = 'Còn hàng'
 
-        # Nhóm quỹ: Độc quyền vs Quỹ chung
-        raw_fund = get_val(row, cm['fund_group']).strip()
-        is_exclusive = is_tab_exclusive or bool(re.search(r'độc quyền|doc quyen|\bđq\b|\bdq\b|\bqr\b|quỹ riêng', raw_fund, re.IGNORECASE))
-        fund_group = 'Độc quyền' if is_exclusive else 'Quỹ chung'
+        # Nhóm quỹ: Độc quyền vs Quỹ chung theo Quy tắc chuẩn hóa
+        if is_general_pool or bool(re.search(r'quỹ chung|quy chung|quỹ cđt|quy cdt', agency_name, re.IGNORECASE)):
+            is_exclusive = False
+            fund_group = 'Quỹ chung'
+        else:
+            # Nguồn của Đại lý phân phối
+            dedicated_excl_col = cm.get('dedicated_exclusive', -1)
+            if dedicated_excl_col != -1:
+                # Trang tính CÓ cột chuyên biệt về Độc quyền -> Phân loại chi tiết theo từng dòng
+                raw_excl = get_val(row, dedicated_excl_col).strip()
+                if re.search(r'độc\s*quyền|doc\s*quyen|\b(đq|dq|qđq|qdq|dqd|x|có|co|1)\b', raw_excl, re.IGNORECASE):
+                    is_exclusive = True
+                    fund_group = 'Độc quyền'
+                else:
+                    is_exclusive = False
+                    fund_group = 'Quỹ chung'
+            else:
+                # Trang tính KHÔNG CÓ cột chuyên biệt về Độc quyền -> 100% căn là Độc quyền của đại lý
+                is_exclusive = True
+                fund_group = 'Độc quyền'
 
         # CSBH
         raw_csbh = get_val(row, cm['csbh']).strip()
@@ -481,7 +502,8 @@ def fetch_agency_from_drive_xlsx(
     today_str: str,
     sheets_service: Any = None,
     agency_url: str = "",
-    sub_tab: str = ""
+    sub_tab: str = "",
+    is_general_pool: bool = False
 ) -> List[Dict[str, Any]]:
     """Tải và phân tích bảng hàng đại lý dạng file Excel (.xlsx) lưu trên Google Drive."""
     try:
@@ -555,7 +577,8 @@ def fetch_agency_from_drive_xlsx(
                 row_hidden_flags=row_hidden_flags,
                 agency_url=agency_url,
                 sub_tab=sub_tab,
-                sheet_title=ws.title
+                sheet_title=ws.title,
+                is_general_pool=is_general_pool
             )
             all_units.extend(parsed)
 
@@ -574,7 +597,8 @@ def fetch_agency_from_drive_xlsx(
                 existing_pool_keys=existing_pool_keys,
                 today_str=today_str,
                 agency_url=agency_url,
-                sub_tab=sub_tab
+                sub_tab=sub_tab,
+                is_general_pool=is_general_pool
             )
         logger.warning(f"Lỗi khi đọc bảng hàng Excel .xlsx {agency_name} ({file_id}): {e}")
         return []
@@ -589,7 +613,8 @@ def fetch_agency_from_google_sheet(
     existing_pool_keys: set,
     today_str: str,
     agency_url: str = "",
-    sub_tab: str = ""
+    sub_tab: str = "",
+    is_general_pool: bool = False
 ) -> List[Dict[str, Any]]:
     """Tải và phân tích bảng hàng đại lý dạng Google Sheets bản địa."""
     service = _get_thread_sheets_service(sheets_service)
@@ -674,7 +699,8 @@ def fetch_agency_from_google_sheet(
             row_hidden_flags=row_hidden_flags,
             agency_url=agency_url,
             sub_tab=sub_tab,
-            sheet_title=chosen_sheet_title
+            sheet_title=chosen_sheet_title,
+            is_general_pool=is_general_pool
         )
     except Exception as e:
         err_msg = str(e)
@@ -689,7 +715,8 @@ def fetch_agency_from_google_sheet(
                 today_str=today_str,
                 sheets_service=service,
                 agency_url=agency_url,
-                sub_tab=sub_tab
+                sub_tab=sub_tab,
+                is_general_pool=is_general_pool
             )
         logger.warning(f"Lỗi khi đọc bảng hàng đại lý {agency_name} ({file_id}): {e}")
         return []
@@ -714,6 +741,7 @@ def fetch_single_agency(
             agency_url = f"https://docs.google.com/spreadsheets/d/{file_id}/edit"
 
     sub_tab = agency_info.get("sub", "")
+    is_general_pool = agency_info.get("is_general_pool", False) or bool(re.search(r'quỹ chung|quy chung|quỹ cđt|quy cdt', agency_name, re.IGNORECASE))
     if agency_info.get("is_excel"):
         return fetch_agency_from_drive_xlsx(
             file_id=file_id,
@@ -725,7 +753,8 @@ def fetch_single_agency(
             today_str=today_str,
             sheets_service=sheets_service,
             agency_url=agency_url,
-            sub_tab=sub_tab
+            sub_tab=sub_tab,
+            is_general_pool=is_general_pool
         )
 
     return fetch_agency_from_google_sheet(
@@ -738,7 +767,8 @@ def fetch_single_agency(
         existing_pool_keys=existing_pool_keys,
         today_str=today_str,
         agency_url=agency_url,
-        sub_tab=sub_tab
+        sub_tab=sub_tab,
+        is_general_pool=is_general_pool
     )
 
 def fetch_all_agencies_for_project(

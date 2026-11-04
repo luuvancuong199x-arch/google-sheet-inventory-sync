@@ -70,3 +70,35 @@ def test_parse_spreadsheet_url_multiple_gids():
     assert len(parsed_rows) == 2
     assert parsed_rows[0]["gid"] == 1592630955
     assert parsed_rows[1]["gid"] == 1143879447
+
+def test_get_agency_links_from_target_sheet():
+    from unittest.mock import MagicMock
+    from src.master_reader import get_agency_links_from_target_sheet
+
+    mock_service = MagicMock()
+    mock_service.spreadsheets().values().get().execute.return_value = {
+        "values": [
+            ["QC", "Quỹ chung", "Bảng hàng", "https://docs.google.com/spreadsheets/d/12l8C00BxvuzEEEgu2ngjkmOUXc1eC_kn/edit?gid=585501108#gid=585501108"],
+            ["1", "VHS", "Bảng hàng", "https://docs.google.com/spreadsheets/d/1ONPUJuewSw1xu_I5SSgnr1YUqIEyGcUJ/edit?gid=841746683"],
+            ["2", "Đất xanh MT", "Bảng hàng", "https://docs.google.com/spreadsheets/d/15mLWBzjkjf8Co-S5CvrAIpJMhn8hK_LNgm8ZmgTuQJI/edit?gid=1725370903,111222333"]
+        ]
+    }
+
+    links = get_agency_links_from_target_sheet(mock_service, "dummy_id")
+    assert len(links) == 4
+    # Check Quỹ chung
+    assert links[0]["agency"] == "Quỹ chung"
+    assert links[0]["is_general_pool"] is True
+    assert links[0]["gid"] == 585501108
+
+    # Check regular agency
+    assert links[1]["agency"] == "VHS"
+    assert links[1]["is_general_pool"] is False
+    assert links[1]["gid"] == 841746683
+
+    # Check multiple GIDs
+    assert links[2]["agency"] == "Đất xanh MT"
+    assert links[2]["gid"] == 1725370903
+    assert links[3]["agency"] == "Đất xanh MT"
+    assert links[3]["gid"] == 111222333
+

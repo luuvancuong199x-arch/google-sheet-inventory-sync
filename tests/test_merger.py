@@ -173,7 +173,7 @@ def test_sorting_by_agency_status_unit_code():
 
 def test_smart_upsert_pool_expiry_and_daily_stats():
     from datetime import date, timedelta
-    today = date(2026, 11, 3)
+    today = date.today()
     today_str = today.strftime("%d/%m/%Y")
     d29_str = (today - timedelta(days=29)).strftime("%d/%m/%Y")
 
@@ -288,5 +288,78 @@ def test_exclusive_agency_available_cannot_be_overwritten_by_general_sold():
     assert row[36] == "Agency A"
     # Nhóm quỹ MUST be Độc quyền
     assert row[32] == "Độc quyền"
+
+def test_make_sort_key_quy_chung_at_the_bottom():
+    # Agencies A and B, plus Quỹ chung
+    # Quỹ chung MUST sort at the very end
+    scanned_units = [
+        {
+            "unit_key": "LK-01",
+            "agency_name": "Quỹ chung",
+            "is_exclusive": False,
+            "status": "Còn hàng",
+            "row_values": [0, "Khu A", "LK-01", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng", "Quỹ chung"] + [""] * 3 + ["Quỹ chung", "04/11/2026", "Còn 30 ngày"]
+        },
+        {
+            "unit_key": "LK-02",
+            "agency_name": "VHS",
+            "is_exclusive": True,
+            "status": "Còn hàng",
+            "row_values": [0, "Khu A", "LK-02", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng", "Độc quyền"] + [""] * 3 + ["VHS", "04/11/2026", "Còn 30 ngày"]
+        },
+        {
+            "unit_key": "LK-03",
+            "agency_name": "BHS",
+            "is_exclusive": True,
+            "status": "Còn hàng",
+            "row_values": [0, "Khu A", "LK-03", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng", "Độc quyền"] + [""] * 3 + ["BHS", "04/11/2026", "Còn 30 ngày"]
+        }
+    ]
+
+    final_rows = smart_upsert_pool({}, scanned_units, is_low_rise=True)
+    assert len(final_rows) == 3
+    # Row 0: BHS
+    assert final_rows[0][36] == "BHS"
+    # Row 1: VHS
+    assert final_rows[1][36] == "VHS"
+    # Row 2: Quỹ chung (at bottom)
+    assert final_rows[2][36] == "Quỹ chung"
+
+def test_reallocation_when_exclusive_expired():
+    from datetime import date, timedelta
+    today = date.today()
+    today_str = today.strftime("%d/%m/%Y")
+    d40_ago_str = (today - timedelta(days=40)).strftime("%d/%m/%Y")
+
+    # existing_pool: LK-99 belonged to Agency A 40 days ago (> 30 days -> EXPIRED)
+    existing_pool = {
+        "LK-99": {
+            "unit_key": "LK-99",
+            "row_values": [1, "Khu A", "LK-99", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng", "Độc quyền"] + [""] * 3 + ["Agency A", d40_ago_str, "⛔ Đã hết hạn (Quá 10 ngày)"]
+        }
+    }
+
+    # Now Agency B scans LK-99 as exclusive with price
+    scanned_units = [
+        {
+            "unit_key": "LK-99",
+            "agency_name": "Agency B",
+            "is_exclusive": True,
+            "status": "Còn hàng",
+            "row_values": [0, "Khu A", "LK-99", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng", "Độc quyền"] + [""] * 3 + ["Agency B", "", ""]
+        }
+    ]
+
+    final_rows = smart_upsert_pool(existing_pool, scanned_units, is_low_rise=True, today_str=today_str)
+    assert len(final_rows) == 1
+    row = final_rows[0]
+    assert row[2] == "LK-99"
+    # Agency transferred to Agency B
+    assert row[36] == "Agency B"
+    # Issue date reset to today_str!
+    assert row[37] == today_str
+    # Expiry reset to 30 days!
+    assert "Còn 30 ngày" in row[38]
+
 
 

@@ -117,9 +117,9 @@ def test_agency_without_exclusive_column_defaults_to_exclusive():
     )
     assert len(parsed) == 2
     assert parsed[0]["is_exclusive"] is True
-    assert parsed[0]["row_values"][32] == "Độc quyền"
+    assert parsed[0]["row_values"][32] == "Quỹ chéo"
     assert parsed[1]["is_exclusive"] is True
-    assert parsed[1]["row_values"][32] == "Độc quyền"
+    assert parsed[1]["row_values"][32] == "Quỹ chéo"
 
 def test_agency_with_dedicated_exclusive_column_classifies_row_by_row():
     headers = ["STT", "Phân khu", "Mã căn", "DT đất", "Giá bán", "Độc quyền"]
@@ -139,7 +139,7 @@ def test_agency_with_dedicated_exclusive_column_classifies_row_by_row():
     )
     assert len(parsed) == 2
     assert parsed[0]["is_exclusive"] is True
-    assert parsed[0]["row_values"][32] == "Độc quyền"
+    assert parsed[0]["row_values"][32] == "Quỹ chéo"
     assert parsed[1]["is_exclusive"] is False
     assert parsed[1]["row_values"][32] == "Quỹ chung"
 
@@ -262,7 +262,26 @@ def test_tab_exclusive_with_contract_fund_column():
     )
     assert len(parsed) == 1
     assert parsed[0]["is_exclusive"] is True
-    assert parsed[0]["row_values"][32] == "Độc quyền"
+    assert parsed[0]["row_values"][32] == "Quỹ chéo"
+
+def test_vhub_agency_sets_fund_group_quy_doc_quyen():
+    headers = ["STT", "Phân khu", "Mã căn", "DT đất", "Giá bán"]
+    grid_rows = [
+        [{"formattedValue": h} for h in headers],
+        [{"formattedValue": "1"}, {"formattedValue": "Khu A"}, {"formattedValue": "LK-01"}, {"formattedValue": "100"}, {"formattedValue": "5000000000"}],
+    ]
+    parsed = parse_agency_grid_data(
+        grid_rows,
+        agency_name="Vhub",
+        project_key="test_project",
+        is_low_rise=True,
+        existing_pool_keys=set(),
+        today_str="04/11/2026",
+        sheet_title="Sheet 1"
+    )
+    assert len(parsed) == 1
+    assert parsed[0]["is_exclusive"] is True
+    assert parsed[0]["row_values"][32] == "Quỹ độc quyền"
 
 
 

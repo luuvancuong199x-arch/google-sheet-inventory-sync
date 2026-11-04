@@ -293,6 +293,13 @@ def parse_agency_grid_data(
             continue
 
         raw_unit = get_val(row, cm['unit_code']).strip()
+        # Fallback: Nếu cột mã căn bị rỗng (ví dụ đại lý gộp ô tiêu đề "Mã căn" trên 2 cột nhưng dữ liệu thực tế nằm ở cột sau):
+        if not raw_unit and cm.get('unit_code', -1) != -1:
+            next_col_idx = cm['unit_code'] + 1
+            if next_col_idx < len(row):
+                cand = get_val(row, next_col_idx).strip()
+                if cand and re.search(r'\d', cand) and len(cand) >= 2:
+                    raw_unit = cand
         if not raw_unit or len(raw_unit) < 2:
             continue
         if re.match(r'^(stt|mã căn|tổng|ghi chú|chú thích|đang bán|đã bán)', raw_unit, re.IGNORECASE):
@@ -368,8 +375,13 @@ def parse_agency_grid_data(
         else:
             resolved_status = 'Còn hàng'
 
-        # Nhóm quỹ: Độc quyền vs Quỹ chung theo Quy tắc chuẩn hóa
+        # Nhóm quỹ theo Quy tắc chuẩn hóa:
+        # 1. Quỹ chung: nguồn Quỹ chung hoặc trạng thái Check Admin -> fund_group = 'Quỹ chung'
+        # 2. Vhub: nguồn đại lý tên là Vhub -> fund_group = 'Quỹ độc quyền'
+        # 3. Các đại lý khác: nếu xác định là độc quyền của đại lý đó -> fund_group = 'Quỹ chéo'
+        is_vhub = bool(re.search(r'\bvhub\b', agency_name, re.IGNORECASE))
         is_check_admin = bool(re.search(r'check\s*admin', combined_status, re.IGNORECASE))
+
         if is_general_pool or bool(re.search(r'quỹ chung|quy chung|quỹ cđt|quy cdt', agency_name, re.IGNORECASE)) or is_check_admin:
             is_exclusive = False
             fund_group = 'Quỹ chung'
@@ -382,7 +394,7 @@ def parse_agency_grid_data(
                 fund_group = 'Quỹ chung'
             else:
                 is_exclusive = True
-                fund_group = 'Độc quyền'
+                fund_group = 'Quỹ độc quyền' if is_vhub else 'Quỹ chéo'
         else:
             # Nguồn của Đại lý phân phối thông thường
             fund_col = cm.get('dedicated_exclusive', -1)
@@ -391,14 +403,14 @@ def parse_agency_grid_data(
                 raw_excl = get_val(row, fund_col).strip()
                 if re.search(r'độc\s*quyền|doc\s*quyen|\b(đq|dq|qđq|qdq|dqd|qr|quỹ\s*riêng|quy\s*rieng|x|có|co|1)\b', raw_excl, re.IGNORECASE):
                     is_exclusive = True
-                    fund_group = 'Độc quyền'
+                    fund_group = 'Quỹ độc quyền' if is_vhub else 'Quỹ chéo'
                 else:
                     is_exclusive = False
                     fund_group = 'Quỹ chung'
             else:
-                # Trang tính KHÔNG CÓ cột phân loại độc quyền -> 100% căn là Độc quyền của đại lý
+                # Trang tính KHÔNG CÓ cột phân loại độc quyền -> 100% căn là độc quyền của đại lý
                 is_exclusive = True
-                fund_group = 'Độc quyền'
+                fund_group = 'Quỹ độc quyền' if is_vhub else 'Quỹ chéo'
 
         # CSBH
         raw_csbh = get_val(row, cm['csbh']).strip()
@@ -788,47 +800,109 @@ def fetch_agency_from_google_sheet(
                 chosen_sheet_title = sheets[0]['properties']['title']
 
         # Đọc dữ liệu ma trận ô (values + hyperlinks + backgroundColor) và rowMetadata
-        grid_resp = _execute_with_retry(
-            service.spreadsheets().get(
-                spreadsheetId=file_id,
-                ranges=[f"'{chosen_sheet_title}'!A1:AZ2000"],
-                fields="sheets(data(rowData(values(formattedValue,hyperlink,effectiveFormat.backgroundColor,userEnteredFormat.backgroundColor)),rowMetadata(hiddenByUser)),properties(title,sheetId))"
+        try:
+            grid_resp = _execute_with_retry(
+                service.spreadsheets().get(
+                    spreadsheetId=file_id,
+                    ranges=[f"'{chosen_sheet_title}'!A1:AZ2000"],
+                    fields="sheets(data(rowData(values(formattedValue,hyperlink,effectiveFormat.backgroundColor,userEnteredFormat.backgroundColor)),rowMetadata(hiddenByUser)),properties(title,sheetId))"
+                )
             )
-        )
 
-        sheet_obj = grid_resp['sheets'][0]
-        data_block = sheet_obj['data'][0]
-        grid_data = data_block.get('rowData', [])
-        row_metadata = data_block.get('rowMetadata', [])
+            sheet_obj = grid_resp['sheets'][0]
+            data_block = sheet_obj['data'][0]
+            grid_data = data_block.get('rowData', [])
+            row_metadata = data_block.get('rowMetadata', [])
 
-        parsed_rows = []
-        row_hidden_flags = []
-        for r_idx, r_data in enumerate(grid_data):
-            r_meta = row_metadata[r_idx] if r_idx < len(row_metadata) else {}
-            # Chỉ coi là dòng bị ẩn khi chủ sở hữu cố tình ẩn hàng (hiddenByUser),
-            # không tính ẩn do bộ lọc tạm thời của người xem (hiddenByFilter)
-            is_h = bool(r_meta.get('hiddenByUser'))
-            row_hidden_flags.append(is_h)
+            parsed_rows = []
+            row_hidden_flags = []
+            for r_idx, r_data in enumerate(grid_data):
+                r_meta = row_metadata[r_idx] if r_idx < len(row_metadata) else {}
+                # Chỉ coi là dòng bị ẩn khi chủ sở hữu cố tình ẩn hàng (hiddenByUser),
+                # không tính ẩn do bộ lọc tạm thời của người xem (hiddenByFilter)
+                is_h = bool(r_meta.get('hiddenByUser'))
+                row_hidden_flags.append(is_h)
 
-            cells = r_data.get('values', [])
-            parsed_cells = []
-            for c in cells:
-                val = c.get('formattedValue', '')
-                link = c.get('hyperlink', '')
-                bg = c.get('effectiveFormat', {}).get('backgroundColor') or c.get('userEnteredFormat', {}).get('backgroundColor')
-                if not bg:
-                    color_type = 'neutral'
-                else:
-                    r_c = float(bg.get('red', 0.0))
-                    g_c = float(bg.get('green', 0.0))
-                    b_c = float(bg.get('blue', 0.0))
-                    color_type = classify_rgb_color(r_c, g_c, b_c)
-                parsed_cells.append({
-                    'formattedValue': val,
-                    'hyperlink': link,
-                    'color_type': color_type
-                })
-            parsed_rows.append(parsed_cells)
+                cells = r_data.get('values', [])
+                parsed_cells = []
+                for c in cells:
+                    val = c.get('formattedValue', '')
+                    link = c.get('hyperlink', '')
+                    bg = c.get('effectiveFormat', {}).get('backgroundColor') or c.get('userEnteredFormat', {}).get('backgroundColor')
+                    if not bg:
+                        color_type = 'neutral'
+                    else:
+                        r_c = float(bg.get('red', 0.0))
+                        g_c = float(bg.get('green', 0.0))
+                        b_c = float(bg.get('blue', 0.0))
+                        color_type = classify_rgb_color(r_c, g_c, b_c)
+                    parsed_cells.append({
+                        'formattedValue': val,
+                        'hyperlink': link,
+                        'color_type': color_type
+                    })
+                parsed_rows.append(parsed_cells)
+        except Exception as e_grid:
+            err_grid_str = str(e_grid)
+            # Nếu gặp lỗi Amplification ratio limit / 403 / zipbomb khi đọc format diện rộng:
+            # Fallback đọc dữ liệu thuần qua values().get trước, sau đó chỉ truy vấn format trong phạm vi dòng thực tế
+            if any(kw in err_grid_str.lower() for kw in ["amplification", "ratio", "limit", "zipbomb"]):
+                logger.info(f"Sheets API get() vượt ngưỡng amplification ({err_grid_str}). Tự động chuyển sang chế độ values.get + targeted format cho {agency_name} ({file_id})")
+                val_resp = _execute_with_retry(
+                    service.spreadsheets().values().get(
+                        spreadsheetId=file_id,
+                        range=f"'{chosen_sheet_title}'!A1:AZ2000"
+                    )
+                )
+                raw_values = val_resp.get('values', [])
+                actual_num_rows = len(raw_values)
+                max_fetch_row = max(actual_num_rows + 5, 20)
+
+                color_lookup = {}
+                row_hidden_flags = [False] * actual_num_rows
+                try:
+                    format_resp = _execute_with_retry(
+                        service.spreadsheets().get(
+                            spreadsheetId=file_id,
+                            ranges=[f"'{chosen_sheet_title}'!A1:AZ{max_fetch_row}"],
+                            fields="sheets(data(rowData(values(userEnteredFormat.backgroundColor)),rowMetadata(hiddenByUser)),properties(sheetId,title))"
+                        )
+                    )
+                    f_sheet = format_resp.get('sheets', [{}])[0]
+                    f_data = f_sheet.get('data', [{}])[0]
+                    f_row_data = f_data.get('rowData', [])
+                    f_row_meta = f_data.get('rowMetadata', [])
+
+                    for r_idx, r_m in enumerate(f_row_meta):
+                        if r_idx < actual_num_rows:
+                            row_hidden_flags[r_idx] = bool(r_m.get('hiddenByUser'))
+
+                    for r_idx, r_d in enumerate(f_row_data):
+                        for c_idx, c_d in enumerate(r_d.get('values', [])):
+                            bg = c_d.get('userEnteredFormat', {}).get('backgroundColor')
+                            if bg:
+                                color_lookup[(r_idx, c_idx)] = classify_rgb_color(
+                                    float(bg.get('red', 0.0)),
+                                    float(bg.get('green', 0.0)),
+                                    float(bg.get('blue', 0.0))
+                                )
+                except Exception as e_fmt:
+                    logger.debug(f"Không thể lấy format rút gọn cho {agency_name}: {e_fmt}")
+
+                parsed_rows = []
+                for r_idx, r_vals in enumerate(raw_values):
+                    cells = []
+                    for c_idx, val in enumerate(r_vals):
+                        val_clean = str(val or '').strip()
+                        c_type = color_lookup.get((r_idx, c_idx), 'neutral')
+                        cells.append({
+                            'formattedValue': val_clean,
+                            'hyperlink': val_clean if val_clean.startswith('http') else '',
+                            'color_type': c_type
+                        })
+                    parsed_rows.append(cells)
+            else:
+                raise e_grid
 
         return parse_agency_grid_data(
             parsed_rows,

@@ -1,8 +1,12 @@
 """
 CLI Runner điều phối toàn bộ pipeline đồng bộ 12 dự án bất động sản.
 Hỗ trợ chạy đồng bộ toàn bộ (--all) hoặc chạy riêng từng dự án (--project "tên dự án").
+Áp dụng kiến trúc Đích Kép (Dual-Destination):
+- Đích 1: Ghi vào Google Sheets chuẩn hóa (khi có thay đổi dữ liệu).
+- Đích 2: Bulk Upsert trực tiếp vào bảng 'products' trong PostgreSQL của VHUB (--write-db).
 """
 
+import os
 import sys
 import time
 import argparse
@@ -26,6 +30,7 @@ from src.master_reader import get_project_agency_links, get_agency_links_from_ta
 from src.fetcher import fetch_all_agencies_for_project
 from src.merger import smart_upsert_pool
 from src.writer import read_existing_target_pool, write_normalized_inventory
+from src.db_writer import bulk_upsert_products_to_db, has_inventory_changed
 
 logging.basicConfig(
     level=logging.INFO,
@@ -34,15 +39,33 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+
+def ensure_default_local_credentials():
+    """Tự động nạp file chứng chỉ mặc định của hệ thống VHUB nếu biến môi trường chưa được gán."""
+    if os.environ.get("GCP_SA_KEY") or os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"):
+        return
+    default_vhub_sa = r"C:\Users\admin\.vhub-credentials\vhub-sheet-syn.json"
+    if os.path.exists(default_vhub_sa):
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = default_vhub_sa
+
+
 def sync_single_project(
     sheets_service,
     project_key: str,
     today_str: str,
     dry_run: bool = False,
-    max_workers: int = 5
+    max_workers: int = 5,
+    write_db: bool = False,
+    force_sheet_write: bool = False
 ) -> dict:
-    """Đồng bộ một dự án cụ thể."""
+    """Đồng bộ một dự án cụ thể (Đích Kép: Google Sheets + PostgreSQL)."""
     config = TARGET_PROJECTS.get(project_key)
+    if not config:
+        for k, v in TARGET_PROJECTS.items():
+            if k.strip().lower() == project_key.strip().lower():
+                project_key = k
+                config = v
+                break
     if not config:
         raise ValueError(f"Không tìm thấy cấu hình cho dự án: '{project_key}'")
 
@@ -54,6 +77,9 @@ def sync_single_project(
     logger.info(f"==> BẮT ĐẦU ĐỒNG BỘ: {project_name} (ID: {target_id})")
     start_time = time.time()
     total_units_updated = 0
+    total_db_upserted = 0
+    db_write_duration = 0.0
+    sheet_skipped_no_diff = False
     overall_agency_stats = {}
     overall_link_sync_stats = {}
     overall_project_stats = {
@@ -106,12 +132,32 @@ def sync_single_project(
             for k in overall_project_stats:
                 overall_project_stats[k] += stats["project_stats"].get(k, 0)
 
+            changed = has_inventory_changed(existing_pool, merged_rows, is_low_rise=False)
             if not dry_run:
-                write_normalized_inventory(
-                    sheets_service, target_id, sub_tab, headers, merged_rows, is_low_rise=False
-                )
+                if changed or force_sheet_write:
+                    write_normalized_inventory(
+                        sheets_service, target_id, sub_tab, headers, merged_rows, is_low_rise=False
+                    )
+                    logger.info(f"Đã cập nhật {len(merged_rows)} căn vào tab '{sub_tab}'")
+                else:
+                    sheet_skipped_no_diff = True
+                    logger.info(
+                        f"⚡ Phân khu '{sub_tab}' không có thay đổi dữ liệu -> "
+                        f"Bỏ qua ghi đè Google Sheet để tiết kiệm Quota"
+                    )
+
+                if write_db:
+                    t_db = time.time()
+                    db_res = bulk_upsert_products_to_db(
+                        rows=merged_rows,
+                        project_key=project_key,
+                        is_low_rise=False,
+                        sub_tab=sub_tab,
+                    )
+                    db_write_duration += (time.time() - t_db)
+                    total_db_upserted += db_res.get("upserted", 0)
+
             total_units_updated += len(merged_rows)
-            logger.info(f"Đã cập nhật {len(merged_rows)} căn vào tab '{sub_tab}'")
     else:
         target_tab_name = 'Bảng hàng chuẩn hóa'
         existing_pool = read_existing_target_pool(
@@ -145,13 +191,32 @@ def sync_single_project(
 
         overall_agency_stats = stats["agency_stats"]
         overall_project_stats = stats["project_stats"]
-
-        if not dry_run:
-            write_normalized_inventory(
-                sheets_service, target_id, target_tab_name, headers, merged_rows, is_low_rise=is_low_rise
-            )
         total_units_updated = len(merged_rows)
-        logger.info(f"Đã cập nhật {total_units_updated} căn vào tab '{target_tab_name}'")
+
+        changed = has_inventory_changed(existing_pool, merged_rows, is_low_rise=is_low_rise)
+        if not dry_run:
+            if changed or force_sheet_write:
+                write_normalized_inventory(
+                    sheets_service, target_id, target_tab_name, headers, merged_rows, is_low_rise=is_low_rise
+                )
+                logger.info(f"Đã cập nhật {total_units_updated} căn vào tab '{target_tab_name}'")
+            else:
+                sheet_skipped_no_diff = True
+                logger.info(
+                    f"⚡ Dữ liệu '{project_name}' không thay đổi so với Sheet đích -> "
+                    f"Bỏ qua bước ghi đè Google Sheet (Tiết kiệm Quota & chống phình lịch sử)"
+                )
+
+            if write_db:
+                t_db = time.time()
+                db_res = bulk_upsert_products_to_db(
+                    rows=merged_rows,
+                    project_key=project_key,
+                    is_low_rise=is_low_rise,
+                    sub_tab=None,
+                )
+                db_write_duration += (time.time() - t_db)
+                total_db_upserted += db_res.get("upserted", 0)
 
     logger.info(
         f"📊 Biến động trong ngày: 🟢 Căn mới hôm nay: +{overall_project_stats['new_today']} | "
@@ -160,7 +225,7 @@ def sync_single_project(
         f"📊 Tổng quỹ: {overall_project_stats['total_units']}"
     )
 
-    if not dry_run:
+    if not dry_run and (not sheet_skipped_no_diff or force_sheet_write):
         try:
             from src.agency_directory import update_project_agency_directory
             update_project_agency_directory(
@@ -177,12 +242,20 @@ def sync_single_project(
             logger.warning(f"Lỗi khi cập nhật Danh mục Đại lý cho {project_name}: {e_dir}")
 
     duration = time.time() - start_time
-    logger.info(f"✅ Hoàn tất dự án {project_name} trong {duration:.2f} giây! (Tổng số căn: {total_units_updated})")
+    logger.info(
+        f"✅ Hoàn tất dự án {project_name} trong {duration:.2f} giây! "
+        f"(Tổng số căn: {total_units_updated}, DB Upserted: {total_db_upserted} trong {db_write_duration:.3f}s)"
+    )
     return {
         "project": project_name,
         "units": total_units_updated,
-        "duration": duration
+        "db_upserted": total_db_upserted,
+        "db_write_duration": db_write_duration,
+        "sheet_skipped_no_diff": sheet_skipped_no_diff,
+        "duration": duration,
+        "project_stats": overall_project_stats,
     }
+
 
 def main():
     parser = argparse.ArgumentParser(description="Hệ thống đồng bộ bảng hàng 12 dự án bất động sản")
@@ -190,8 +263,11 @@ def main():
     parser.add_argument("--project", type=str, help="Đồng bộ riêng 1 dự án (ví dụ: 'làng vân', 'VRI'...)")
     parser.add_argument("--dry-run", action="store_true", help="Chạy quét thử nghiệm, không ghi đè vào Sheet đích")
     parser.add_argument("--max-workers", type=int, default=5, help="Số luồng quét song song (mặc định 5)")
+    parser.add_argument("--write-db", action="store_true", help="Ghi trực tiếp dữ liệu vào PostgreSQL bảng products")
+    parser.add_argument("--force-sheet-write", action="store_true", help="Bắt buộc ghi lại Google Sheet kể cả khi không có diff")
     args = parser.parse_args()
 
+    ensure_default_local_credentials()
     sheets_service = get_sheets_service()
     today_str = datetime.now(VN_TZ).strftime('%d/%m/%Y')
     overall_start = time.time()
@@ -202,7 +278,9 @@ def main():
             args.project,
             today_str=today_str,
             dry_run=args.dry_run,
-            max_workers=args.max_workers
+            max_workers=args.max_workers,
+            write_db=args.write_db,
+            force_sheet_write=args.force_sheet_write
         )
     elif args.all or not args.project:
         logger.info("==================================================")
@@ -216,7 +294,9 @@ def main():
                     p_key,
                     today_str=today_str,
                     dry_run=args.dry_run,
-                    max_workers=args.max_workers
+                    max_workers=args.max_workers,
+                    write_db=args.write_db,
+                    force_sheet_write=args.force_sheet_write
                 )
                 summary.append(res)
             except Exception as e:
@@ -224,11 +304,13 @@ def main():
 
         total_time = time.time() - overall_start
         total_units = sum(s['units'] for s in summary)
+        total_db = sum(s.get('db_upserted', 0) for s in summary)
         logger.info("==================================================")
         logger.info(f"🎉 TỔNG KẾT: Đã đồng bộ {len(summary)}/{len(TARGET_PROJECTS)} dự án")
-        logger.info(f"📊 Tổng số căn: {total_units}")
+        logger.info(f"📊 Tổng số căn: {total_units} (DB Upserted: {total_db})")
         logger.info(f"⏱️ Tổng thời gian: {total_time:.2f} giây (~{total_time/60:.1f} phút)")
         logger.info("==================================================")
+
 
 if __name__ == '__main__':
     main()

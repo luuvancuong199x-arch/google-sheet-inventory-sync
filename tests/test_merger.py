@@ -318,12 +318,12 @@ def test_make_sort_key_quy_chung_at_the_bottom():
 
     final_rows = smart_upsert_pool({}, scanned_units, is_low_rise=True)
     assert len(final_rows) == 3
-    # Row 0: BHS
-    assert final_rows[0][36] == "BHS"
-    # Row 1: VHS
-    assert final_rows[1][36] == "VHS"
-    # Row 2: Quỹ chung (at bottom)
-    assert final_rows[2][36] == "Quỹ chung"
+    # Row 0: Quỹ chung (hiển thị đầu bảng theo quy tắc mới)
+    assert final_rows[0][36] == "Quỹ chung"
+    # Row 1: BHS
+    assert final_rows[1][36] == "BHS"
+    # Row 2: VHS
+    assert final_rows[2][36] == "VHS"
 
 def test_reallocation_when_exclusive_expired():
     from datetime import date, timedelta
@@ -360,6 +360,35 @@ def test_reallocation_when_exclusive_expired():
     assert row[37] == today_str
     # Expiry reset to 30 days!
     assert "Còn 30 ngày" in row[38]
+
+def test_agency_marking_common_fund_yields_to_official_general_pool():
+    # Scenario like AN3-12:
+    # Agency NOVASKY has AN3-12 marked 'Chung' (is_exclusive=False)
+    # Official 'Quỹ chung' also has AN3-12 (is_exclusive=False)
+    # Both have valid prices. Official Quỹ chung MUST win!
+    scanned_units = [
+        {
+            "unit_key": "AN3-12",
+            "agency_name": "NOVASKY",
+            "is_exclusive": False,
+            "status": "Còn hàng",
+            "row_values": [0, "Đảo Ngọc", "AN3-12", "Hoàn thiện", "LK", 70, 208, 10000000000] + [""] * 23 + ["Còn hàng", "Quỹ chung"] + [""] * 3 + ["NOVASKY", "04/11/2026", "Còn 30 ngày"]
+        },
+        {
+            "unit_key": "AN3-12",
+            "agency_name": "Quỹ chung",
+            "is_exclusive": False,
+            "status": "Còn hàng",
+            "row_values": [0, "Đảo Ngọc", "AN3-12", "Hoàn thiện", "LK", 70, 208, 10000000000] + [""] * 23 + ["Còn hàng", "Quỹ chung"] + [""] * 3 + ["Quỹ chung", "04/11/2026", "Còn 30 ngày"]
+        }
+    ]
+
+    final_rows = smart_upsert_pool({}, scanned_units, is_low_rise=True)
+    assert len(final_rows) == 1
+    assert final_rows[0][2] == "AN3-12"
+    assert final_rows[0][32] == "Quỹ chung"
+    assert final_rows[0][36] == "Quỹ chung"
+
 
 
 

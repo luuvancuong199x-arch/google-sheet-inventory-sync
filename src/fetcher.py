@@ -362,23 +362,31 @@ def parse_agency_grid_data(
             resolved_status = 'Còn hàng'
 
         # Nhóm quỹ: Độc quyền vs Quỹ chung theo Quy tắc chuẩn hóa
-        if is_general_pool or bool(re.search(r'quỹ chung|quy chung|quỹ cđt|quy cdt', agency_name, re.IGNORECASE)):
+        is_check_admin = bool(re.search(r'check\s*admin', combined_status, re.IGNORECASE))
+        if is_general_pool or bool(re.search(r'quỹ chung|quy chung|quỹ cđt|quy cdt', agency_name, re.IGNORECASE)) or is_check_admin:
             is_exclusive = False
             fund_group = 'Quỹ chung'
         else:
             # Nguồn của Đại lý phân phối
-            dedicated_excl_col = cm.get('dedicated_exclusive', -1)
-            if dedicated_excl_col != -1:
-                # Trang tính CÓ cột chuyên biệt về Độc quyền -> Phân loại chi tiết theo từng dòng
-                raw_excl = get_val(row, dedicated_excl_col).strip()
-                if re.search(r'độc\s*quyền|doc\s*quyen|\b(đq|dq|qđq|qdq|dqd|x|có|co|1)\b', raw_excl, re.IGNORECASE):
+            fund_col = cm.get('dedicated_exclusive', -1)
+            if fund_col == -1:
+                fund_col = cm.get('fund_group', -1)
+
+            if fund_col != -1:
+                # Trang tính CÓ cột phân loại quỹ / độc quyền -> phân loại chi tiết theo từng dòng
+                raw_excl = get_val(row, fund_col).strip()
+                if re.search(r'^(quỹ\s*chung|chung|\bqc\b)$', raw_excl, re.IGNORECASE) or not raw_excl:
+                    is_exclusive = False
+                    fund_group = 'Quỹ chung'
+                elif re.search(r'độc\s*quyền|doc\s*quyen|\b(đq|dq|qđq|qdq|dqd|qr|quỹ\s*riêng|quy\s*rieng|x|có|co|1)\b', raw_excl, re.IGNORECASE):
                     is_exclusive = True
                     fund_group = 'Độc quyền'
                 else:
+                    # Các loại quỹ không mang tính độc quyền (Quỹ CĐT, VHM...) -> Quỹ chung
                     is_exclusive = False
                     fund_group = 'Quỹ chung'
             else:
-                # Trang tính KHÔNG CÓ cột chuyên biệt về Độc quyền -> 100% căn là Độc quyền của đại lý
+                # Trang tính KHÔNG CÓ bất kỳ trường dữ liệu phân loại nào -> 100% căn là Độc quyền của đại lý
                 is_exclusive = True
                 fund_group = 'Độc quyền'
 

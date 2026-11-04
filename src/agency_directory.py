@@ -9,8 +9,10 @@ import re
 import json
 import logging
 import time
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, List, Optional
+
+VN_TZ = timezone(timedelta(hours=7))
 from src.config import TARGET_PROJECTS
 from src.master_reader import get_project_agency_links, get_agency_links_from_target_sheet
 from src.fetcher import _execute_with_retry
@@ -494,7 +496,7 @@ def update_project_agency_directory(
     sub_tabs = cfg.get('sub_tabs')
 
     if not today_str:
-        today_str = datetime.now().strftime('%d/%m/%Y')
+        today_str = datetime.now(VN_TZ).strftime('%d/%m/%Y')
 
     # Nạp chẩn đoán lỗi nếu chưa có
     if not diagnostic_lookup:
@@ -548,7 +550,7 @@ def update_project_agency_directory(
     sheet_id = ensure_directory_sheet_exists(sheets_service, spreadsheet_id)
 
     # 4. Chuẩn bị dữ liệu bảng
-    current_time_str = time.strftime("%d/%m/%Y %H:%M")
+    current_time_str = datetime.now(VN_TZ).strftime("%d/%m/%Y %H:%M")
 
     # Banner dòng 1
     kpi_row_1 = [f"TỔNG HỢP BIẾN ĐỘNG TRONG NGÀY ({today_str}) - CẬP NHẬT LÚC {current_time_str}"] + [""] * 10

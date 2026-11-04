@@ -27,7 +27,7 @@ def natural_sort_key(s: str) -> list:
 def make_sort_key(row: List[Any], is_low_rise: bool) -> tuple:
     """
     Tạo khóa sắp xếp đa cấp:
-    - Cấp 1: Gom theo nhóm Quỹ (0: Đại lý phân phối A-Z, 1: Quỹ chung - đưa xuống cuối bảng)
+    - Cấp 1: Gom theo nhóm Quỹ (0: Quỹ chung - hiển thị đầu bảng, 1: Đại lý phân phối A-Z)
     - Cấp 2: Tên Đại lý (A-Z)
     - Cấp 3: Trong từng Đại lý/Quỹ chung: Trạng thái (1: Còn hàng, 2: Đang lock, 3: Đã bán)
     - Cấp 4: Trong cùng trạng thái: Mã căn A-Z (natural sort)
@@ -40,7 +40,7 @@ def make_sort_key(row: List[Any], is_low_rise: bool) -> tuple:
     clean_agency = extract_clean_agency_name(agency_raw).strip().upper()
 
     is_qc = bool(re.search(r'quỹ chung|quy chung|quỹ cđt|quy cdt', clean_agency, re.IGNORECASE))
-    group_rank = 1 if is_qc else 0
+    group_rank = 0 if is_qc else 1
 
     status_raw = str(row[status_col_idx] if len(row) > status_col_idx else '').strip().lower()
     if 'còn' in status_raw or 'con' in status_raw:
@@ -76,10 +76,11 @@ def get_candidate_rank(
     """
     Xác định mức độ ưu tiên giữa các nguồn khi deduplicate cùng 1 mã căn:
     1. Có giá hợp lệ (Giá chưa VAT hoặc Giá full) -> Luôn ưu tiên hơn nguồn không có giá.
-    2. Nguồn Độc quyền -> Ưu tiên hơn nguồn Quỹ chung.
-    3. Đại lý đang nắm giữ độc quyền hợp lệ (< 30 ngày) -> Ưu tiên bảo vệ không bị đại lý khác ghi đè.
-    4. Nguồn có trạng thái Khả dụng ('Còn hàng' hoặc 'Đang lock') -> Ưu tiên hơn nguồn đánh dấu 'Đã bán'.
-    5. Số lượng trường giá được điền đầy đủ hơn (độ chi tiết dữ liệu).
+    2. Nguồn Quỹ chung chính thức (từ file Quỹ chung dự án) -> Thẩm quyền cao nhất với các căn thuộc giỏ chung.
+    3. Nguồn Độc quyền -> Ưu tiên hơn các nguồn đại lý thông thường.
+    4. Đại lý đang nắm giữ độc quyền hợp lệ (< 30 ngày) -> Ưu tiên bảo vệ không bị đại lý khác ghi đè.
+    5. Nguồn có trạng thái Khả dụng ('Còn hàng' hoặc 'Đang lock') -> Ưu tiên hơn nguồn đánh dấu 'Đã bán'.
+    6. Số lượng trường giá được điền đầy đủ hơn (độ chi tiết dữ liệu).
     """
     chua_idx = 7 if is_low_rise else 13
     full_idx = 10 if is_low_rise else 14
@@ -87,11 +88,12 @@ def get_candidate_rank(
     is_exclusive = bool(item.get("is_exclusive"))
 
     item_agency = extract_clean_agency_name(item.get("agency_name") or '').strip().upper()
+    is_official_qc = bool(re.search(r'quỹ chung|quy chung|quỹ cđt|quy cdt', item_agency, re.IGNORECASE))
     is_current_protected_owner = bool(is_within_exclusive_period and existing_owner and item_agency == existing_owner)
 
     is_active = (item.get("status") in ["Còn hàng", "Đang lock"])
     price_count = count_filled_prices(item["row_values"], is_low_rise)
-    return (has_valid_price, is_exclusive, is_current_protected_owner, is_active, price_count)
+    return (has_valid_price, is_official_qc, is_exclusive, is_current_protected_owner, is_active, price_count)
 
 def smart_upsert_pool(
     existing_pool_by_key: Dict[str, Dict[str, Any]],

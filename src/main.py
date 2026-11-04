@@ -7,8 +7,10 @@ import sys
 import time
 import argparse
 import logging
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from typing import Optional
+
+VN_TZ = timezone(timedelta(hours=7))
 
 # Cấu hình UTF-8 cho console để in tiếng Việt chuẩn xác trên mọi OS (Windows/Linux)
 if hasattr(sys.stdout, 'reconfigure'):
@@ -185,7 +187,7 @@ def main():
     args = parser.parse_args()
 
     sheets_service = get_sheets_service()
-    today_str = datetime.now().strftime('%d/%m/%Y')
+    today_str = datetime.now(VN_TZ).strftime('%d/%m/%Y')
     overall_start = time.time()
 
     if args.project:

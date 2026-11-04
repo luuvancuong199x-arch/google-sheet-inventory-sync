@@ -389,6 +389,85 @@ def test_agency_marking_common_fund_yields_to_official_general_pool():
     assert final_rows[0][32] == "Quỹ chung"
     assert final_rows[0][36] == "Quỹ chung"
 
+def test_active_exclusive_candidate_overrides_inactive_protected_owner():
+    # Scenario like SV5-07:
+    # Existing owner MAI VIET had the unit recorded with an issue date within 30 days.
+    # But MAI VIET has hidden or marked the unit as 'Đã bán'.
+    # Meanwhile, DAT XANH MT scans the unit as active ('Còn hàng') with full price.
+    # DAT XANH MT MUST win and status MUST be 'Còn hàng'.
+    existing_pool = {
+        "SV5-07": {
+            "unit_key": "SV5-07",
+            "row_values": [1, "Đảo Ngọc", "SV5-07", "Hoàn thiện", "LK", 70, 192.3, 16497494953] + [""] * 23 + ["Đã bán", "Độc quyền"] + [""] * 3 + ["MAI VIỆT", "01/11/2026", "Còn 27 ngày"]
+        }
+    }
+    scanned_units = [
+        # MAI VIET scanned first, still 'Đã bán'
+        {
+            "unit_key": "SV5-07",
+            "agency_name": "MAI VIỆT",
+            "is_exclusive": True,
+            "status": "Đã bán",
+            "row_values": [0, "Đảo Ngọc", "SV5-07", "Hoàn thiện", "LK", 70, 192.3, 16497494953, 1541747818, 82487475, 18121730246] + [""] * 20 + ["Đã bán", "Độc quyền"] + [""] * 3 + ["MAI VIỆT", "01/11/2026", "Còn 27 ngày"]
+        },
+        # DAT XANH MT scanned second, 'Còn hàng'
+        {
+            "unit_key": "SV5-07",
+            "agency_name": "Đất xanh MT",
+            "is_exclusive": True,
+            "status": "Còn hàng",
+            "row_values": [0, "Đảo Ngọc", "SV5-07", "Hoàn thiện", "LK", 70, 192.3, 15692938557, 1461292179, 82487475, 17236718211] + [""] * 20 + ["Còn hàng", "Độc quyền"] + [""] * 3 + ["Đất xanh MT", "04/11/2026", "Còn 30 ngày"]
+        }
+    ]
+
+    final_rows = smart_upsert_pool(existing_pool, scanned_units, is_low_rise=True, today_str="04/11/2026")
+    assert len(final_rows) == 1
+    row = final_rows[0]
+    assert row[2] == "SV5-07"
+    assert row[31] == "Còn hàng"
+    assert row[36] == "Đất xanh MT"
+    assert row[32] == "Độc quyền"
+    assert row[37] == "04/11/2026"
+
+def test_richer_pricing_overrides_sparse_agency_when_both_active():
+    # Scenario like ĐLHV-09:
+    # Agency MGLAND lists ĐLHV-09 with only 1 price field.
+    # Agency DAT XANH MT lists ĐLHV-09 with 4 detailed price fields.
+    # DAT XANH MT MUST win due to higher data fidelity and price completeness.
+    existing_pool = {
+        "ĐLHV-09": {
+            "unit_key": "ĐLHV-09",
+            "row_values": [1, "Bạch Vân", "ĐLHV-09", "Thô", "LK", 80, 244.9, ""] + [""] * 2 + [8756092369] + [""] * 20 + ["Còn hàng", "Độc quyền"] + [""] * 3 + ["MGLAND", "01/11/2026", "Còn 27 ngày"]
+        }
+    }
+    scanned_units = [
+        # MGLAND scanned first (1 price field)
+        {
+            "unit_key": "ĐLHV-09",
+            "agency_name": "MGLAND",
+            "is_exclusive": True,
+            "status": "Còn hàng",
+            "row_values": [0, "Bạch Vân", "ĐLHV-09", "Thô", "LK", 80, 244.9, ""] + [""] * 2 + [8756092369] + [""] * 20 + ["Còn hàng", "Độc quyền"] + [""] * 3 + ["MGLAND", "01/11/2026", "Còn 27 ngày"]
+        },
+        # DAT XANH MT scanned second (4 price fields)
+        {
+            "unit_key": "ĐLHV-09",
+            "agency_name": "Đất xanh MT",
+            "is_exclusive": True,
+            "status": "Còn hàng",
+            "row_values": [0, "Bạch Vân", "ĐLHV-09", "Thô", "LK", 80, 244.9, 8038027068, 680372219, 37693082, 8756092369] + [""] * 20 + ["Còn hàng", "Độc quyền"] + [""] * 3 + ["Đất xanh MT", "04/11/2026", "Còn 30 ngày"]
+        }
+    ]
+
+    final_rows = smart_upsert_pool(existing_pool, scanned_units, is_low_rise=True, today_str="04/11/2026")
+    assert len(final_rows) == 1
+    row = final_rows[0]
+    assert row[2] == "ĐLHV-09"
+    assert row[31] == "Còn hàng"
+    assert row[36] == "Đất xanh MT"
+    assert row[7] == 8038027068
+
+
 
 
 

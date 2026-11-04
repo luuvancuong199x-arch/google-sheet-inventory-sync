@@ -78,9 +78,9 @@ def get_candidate_rank(
     1. Có giá hợp lệ (Giá chưa VAT hoặc Giá full) -> Luôn ưu tiên hơn nguồn không có giá.
     2. Nguồn Quỹ chung chính thức (từ file Quỹ chung dự án) -> Thẩm quyền cao nhất với các căn thuộc giỏ chung.
     3. Nguồn Độc quyền -> Ưu tiên hơn các nguồn đại lý thông thường.
-    4. Đại lý đang nắm giữ độc quyền hợp lệ (< 30 ngày) -> Ưu tiên bảo vệ không bị đại lý khác ghi đè.
-    5. Nguồn có trạng thái Khả dụng ('Còn hàng' hoặc 'Đang lock') -> Ưu tiên hơn nguồn đánh dấu 'Đã bán'.
-    6. Số lượng trường giá được điền đầy đủ hơn (độ chi tiết dữ liệu).
+    4. Trạng thái Khả dụng ('Còn hàng' hoặc 'Đang lock') -> Ưu tiên hơn nguồn đánh dấu 'Đã bán' hoặc bị ẩn hàng.
+    5. Số lượng trường giá được điền đầy đủ hơn (độ chi tiết dữ liệu giá, bóc tách đất/xây, ngân hàng).
+    6. Đại lý đang nắm giữ độc quyền hợp lệ (< 30 ngày) -> Ưu tiên bảo vệ chủ sở hữu cũ nếu cùng số trường giá.
     """
     chua_idx = 7 if is_low_rise else 13
     full_idx = 10 if is_low_rise else 14
@@ -93,7 +93,7 @@ def get_candidate_rank(
 
     is_active = (item.get("status") in ["Còn hàng", "Đang lock"])
     price_count = count_filled_prices(item["row_values"], is_low_rise)
-    return (has_valid_price, is_official_qc, is_exclusive, is_current_protected_owner, is_active, price_count)
+    return (has_valid_price, is_official_qc, is_exclusive, is_active, price_count, is_current_protected_owner)
 
 def smart_upsert_pool(
     existing_pool_by_key: Dict[str, Dict[str, Any]],

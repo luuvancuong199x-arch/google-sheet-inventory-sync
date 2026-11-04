@@ -608,21 +608,26 @@ def update_project_agency_directory(
         sub_u = (sub or '').strip().upper()
         p_u = project_key.strip().upper()
 
+        # Tra cứu thống kê trực tiếp từ kết quả quét link nguồn
+        link_st = None
+        if sync_stats_lookup:
+            link_st = (
+                sync_stats_lookup.get((ag_name.strip().upper(), url.strip(), sub_u)) or
+                sync_stats_lookup.get((clean_ag, url.strip(), sub_u)) or
+                sync_stats_lookup.get((ag_name.strip().upper(), url.strip())) or
+                sync_stats_lookup.get((clean_ag, url.strip())) or
+                sync_stats_lookup.get((p_u, sub_u, clean_ag)) or
+                sync_stats_lookup.get(clean_ag) or
+                sync_stats_lookup.get(ag_name.strip().upper())
+            )
+
+        # Tra cứu thống kê tổng hợp từ kho dữ liệu master pool
         ag_st = (
             agency_stats.get((clean_ag, sub_u)) or
             agency_stats.get(clean_ag) or
             agency_stats.get((p_u, sub_u, clean_ag)) or
             agency_stats.get((p_u, clean_ag))
-        )
-
-        # Fallback sync_stats_lookup nếu cần
-        if not ag_st and sync_stats_lookup:
-            ag_st = (
-                sync_stats_lookup.get((p_u, sub_u, clean_ag)) or
-                sync_stats_lookup.get((p_u, clean_ag)) or
-                sync_stats_lookup.get((clean_ag, sub_u)) or
-                sync_stats_lookup.get(clean_ag)
-            )
+        ) or link_st
 
         if is_qc:
             if not url:
@@ -632,14 +637,15 @@ def update_project_agency_directory(
                 ag_new = 0
                 ag_sold = 0
                 ag_expiring = 0
-            elif ag_st and (ag_st.get('total_units', 0) > 0 or ag_st.get('count', 0) > 0):
-                count = ag_st.get('total_units') or ag_st.get('count', 0)
-                avail = ag_st.get('avail', 0)
-                lock = ag_st.get('lock', 0)
-                sold = ag_st.get('sold', 0)
-                ag_new = ag_st.get('new_today', 0)
-                ag_sold = ag_st.get('sold_today', 0)
-                ag_expiring = ag_st.get('expiring_soon', 0)
+            elif (link_st and (link_st.get('total_units', 0) > 0 or link_st.get('count', 0) > 0)) or (ag_st and (ag_st.get('total_units', 0) > 0 or ag_st.get('count', 0) > 0)):
+                effective_st = link_st or ag_st
+                count = effective_st.get('total_units') or effective_st.get('count', 0)
+                avail = effective_st.get('avail', 0)
+                lock = effective_st.get('lock', 0)
+                sold = effective_st.get('sold', 0)
+                ag_new = ag_st.get('new_today', 0) if ag_st else 0
+                ag_sold = ag_st.get('sold_today', 0) if ag_st else 0
+                ag_expiring = ag_st.get('expiring_soon', 0) if ag_st else 0
                 status_text = "Đang hoạt động"
                 desc_text = f"Đã đồng bộ {count} căn Quỹ chung ({avail} còn hàng, {lock} lock, {sold} đã bán)."
             else:
@@ -649,17 +655,25 @@ def update_project_agency_directory(
                 ag_new = 0
                 ag_sold = 0
                 ag_expiring = 0
-        elif ag_st and (ag_st.get('total_units', 0) > 0 or ag_st.get('count', 0) > 0):
-            count = ag_st.get('total_units') or ag_st.get('count', 0)
-            avail = ag_st.get('avail', 0)
-            lock = ag_st.get('lock', 0)
-            sold = ag_st.get('sold', 0)
-            ag_new = ag_st.get('new_today', 0)
-            ag_sold = ag_st.get('sold_today', 0)
-            ag_expiring = ag_st.get('expiring_soon', 0)
+        elif (link_st and (link_st.get('total_units', 0) > 0 or link_st.get('count', 0) > 0)) or (ag_st and (ag_st.get('total_units', 0) > 0 or ag_st.get('count', 0) > 0)):
+            effective_st = link_st or ag_st
+            count = effective_st.get('total_units') or effective_st.get('count', 0)
+            avail = effective_st.get('avail', 0)
+            lock = effective_st.get('lock', 0)
+            sold = effective_st.get('sold', 0)
+            ag_new = ag_st.get('new_today', 0) if ag_st else 0
+            ag_sold = ag_st.get('sold_today', 0) if ag_st else 0
+            ag_expiring = ag_st.get('expiring_soon', 0) if ag_st else 0
 
             status_text = "Đang hoạt động"
             desc_text = f"Đã đồng bộ {count} căn ({avail} còn hàng, {lock} lock, {sold} đã bán)."
+        elif link_st is not None:
+            status_text = "Cảnh báo: Bảng hàng trống / Hết hàng"
+            desc_text = "Bảng tính kết nối thành công nhưng không có căn nào còn diện tích hoặc giá. Đại lý có thể đã bán hết hàng hoặc đang ẩn giỏ hàng."
+            count = 0
+            ag_new = 0
+            ag_sold = 0
+            ag_expiring = 0
         elif diag_info:
             root_cause = diag_info.get('root_cause', 'UNKNOWN')
             detail = diag_info.get('detail', '')

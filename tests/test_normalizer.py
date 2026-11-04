@@ -9,7 +9,8 @@ from src.normalizer import (
     resolve_unit_media_links,
     normalize_csbh_date,
     normalize_low_rise_type,
-    normalize_high_rise_type
+    normalize_high_rise_type,
+    normalize_direction
 )
 
 def test_sanitize_unit_code():
@@ -147,5 +148,32 @@ def test_compute_expiry_warning():
     # 6. Ngày rỗng hoặc không hợp lệ -> UNKNOWN
     assert compute_expiry_warning("")["status"] == "UNKNOWN"
     assert compute_expiry_warning("invalid-date")["status"] == "UNKNOWN"
+
+def test_normalize_direction():
+    assert normalize_direction("ĐB") == "ĐB"
+    assert normalize_direction("Đông Bắc") == "ĐB"
+    assert normalize_direction("Hướng Đông") == "Đông"
+    assert normalize_direction("TÂY NAM") == "TN"
+    assert normalize_direction("TN-TB") == "TN-TB"
+    assert normalize_direction("ĐB/ĐN") == "ĐB-ĐN"
+    # Rejects shifted numbers/prices
+    assert normalize_direction("11.833") == ""
+    assert normalize_direction("9.920") == ""
+    assert normalize_direction("32.004") == ""
+    assert normalize_direction("7.552") == ""
+    assert normalize_direction("") == ""
+    assert normalize_direction("-") == ""
+
+def test_normalize_price_rejects_dates_and_extreme_m2():
+    # Dates should return empty
+    assert normalize_price_to_vnd("2028-10-01 00:00:00", unit_hint="M2") == ""
+    assert normalize_price_to_vnd("01/10/2028", unit_hint="M2") == ""
+    # M2 extreme unit price rejection (> 1 billion or < 1 million)
+    assert normalize_price_to_vnd(20_281_001_000_000, unit_hint="M2") == ""
+    assert normalize_price_to_vnd("20.281.001.000.000", unit_hint="M2") == ""
+    assert normalize_price_to_vnd(0.5, unit_hint="M2") == ""  # 0.5 * 1e6 = 500_000 (< 1 million)
+    # Valid M2 prices
+    assert normalize_price_to_vnd(85_000_000, unit_hint="M2") == 85_000_000
+    assert normalize_price_to_vnd("75.5 triệu/m2", unit_hint="M2") == 75_500_000
 
 

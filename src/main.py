@@ -55,6 +55,7 @@ def sync_single_project(
     start_time = time.time()
     total_units_updated = 0
     overall_agency_stats = {}
+    overall_link_sync_stats = {}
     overall_project_stats = {
         "total_units": 0, "new_today": 0, "sold_today": 0,
         "expiring_soon": 0, "avail": 0, "lock": 0, "sold": 0
@@ -75,15 +76,17 @@ def sync_single_project(
                 )
             logger.info(f"Tìm thấy {len(agency_links)} link đại lý cho phân khu {sub_tab}")
 
-            scanned, successful_agencies = fetch_all_agencies_for_project(
+            scanned, successful_agencies, link_sync_stats = fetch_all_agencies_for_project(
                 sheets_service,
                 agency_links,
                 project_key,
                 is_low_rise=False,
                 existing_pool_keys=set(existing_pool.keys()),
                 today_str=today_str,
-                max_workers=max_workers
+                max_workers=max_workers,
+                return_link_stats=True
             )
+            overall_link_sync_stats.update(link_sync_stats)
 
             merged_rows, stats = smart_upsert_pool(
                 existing_pool, scanned, is_low_rise=False, today_str=today_str,
@@ -123,15 +126,17 @@ def sync_single_project(
             )
         logger.info(f"Tìm thấy {len(agency_links)} link đại lý cho dự án {project_name}")
 
-        scanned, successful_agencies = fetch_all_agencies_for_project(
+        scanned, successful_agencies, link_sync_stats = fetch_all_agencies_for_project(
             sheets_service,
             agency_links,
             project_key,
             is_low_rise=is_low_rise,
             existing_pool_keys=set(existing_pool.keys()),
             today_str=today_str,
-            max_workers=max_workers
+            max_workers=max_workers,
+            return_link_stats=True
         )
+        overall_link_sync_stats.update(link_sync_stats)
 
         merged_rows, stats = smart_upsert_pool(
             existing_pool, scanned, is_low_rise=is_low_rise, today_str=today_str,
@@ -161,6 +166,7 @@ def sync_single_project(
             update_project_agency_directory(
                 sheets_service=sheets_service,
                 project_key=project_key,
+                sync_stats_lookup=overall_link_sync_stats,
                 project_daily_stats={
                     "agency_stats": overall_agency_stats,
                     "project_stats": overall_project_stats

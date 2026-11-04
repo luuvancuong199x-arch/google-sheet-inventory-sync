@@ -211,6 +211,7 @@ def normalize_price_to_vnd(raw_val: Any, unit_hint: str = 'TOTAL') -> Any:
     """
     Quy đổi giá tiền về số nguyên VNĐ đồng nhất.
     Phân biệt chính xác giữa Tỷ và Triệu, không xóa nhầm các căn có giá < 1.5 tỷ.
+    Chặn triệt để chuỗi ngày tháng và ngưỡng giá bất thường cho đơn giá m2.
     """
     if raw_val is None or raw_val == '':
         return ''
@@ -223,10 +224,15 @@ def normalize_price_to_vnd(raw_val: Any, unit_hint: str = 'TOTAL') -> Any:
             if num < 5:
                 return ''
             if num < 1000:
-                return int(round(num * 1e6))
-            if num < 1_000_000:
-                return int(round(num * 1e3))
-            return int(round(num))
+                res_m2 = int(round(num * 1e6))
+            elif num < 1_000_000:
+                res_m2 = int(round(num * 1e3))
+            else:
+                res_m2 = int(round(num))
+            # Chặn đơn giá m2 bất thường (> 1 tỷ/m2 hoặc < 1 triệu/m2)
+            if res_m2 > 1_000_000_000 or (0 < res_m2 < 1_000_000):
+                return ''
+            return res_m2
 
         if unit_hint == 'VAT_KPBT':
             if num < 1000:
@@ -248,12 +254,17 @@ def normalize_price_to_vnd(raw_val: Any, unit_hint: str = 'TOTAL') -> Any:
     if not s or re.match(r'^(0|0,0|0\.0|-|n/a|đã bán|còn hàng|lock|check|thu|#ref!|#value!|#error!)$', s, re.IGNORECASE):
         return ''
 
+    # Chặn chuỗi ngày tháng (VD: 2028-10-01 00:00:00 hoặc 01/10/2028)
+    if re.search(r'^\d{4}[-/]\d{1,2}[-/]\d{1,2}|\d{1,2}[-/]\d{1,2}[-/]\d{4}', s):
+        return ''
+
     s = s.split('\n')[0].strip()
     s = re.sub(r'\([^)]*\)', '', s).strip()
 
     is_ty = bool(re.search(r'tỷ|ty', s, re.IGNORECASE))
     is_tr = bool(re.search(r'triệu|tr', s, re.IGNORECASE))
 
+    s = re.sub(r'/(m2|m²)|m2|m²', '', s, flags=re.IGNORECASE).strip()
     s = re.sub(r'vnđ|vnd|đồng|₫', '', s, flags=re.IGNORECASE).strip()
     s = re.sub(r'^[.,-]+|[.,-]+$', '', s).strip()
     s = re.sub(r'[^\d.,]', '', s)
@@ -294,7 +305,11 @@ def normalize_price_to_vnd(raw_val: Any, unit_hint: str = 'TOTAL') -> Any:
     if is_tr:
         return int(round(val_float * 1e6))
 
-    return normalize_price_to_vnd(val_float, unit_hint=unit_hint)
+    res = normalize_price_to_vnd(val_float, unit_hint=unit_hint)
+    if unit_hint == 'M2' and isinstance(res, (int, float)):
+        if res > 1_000_000_000 or (0 < res < 1_000_000):
+            return ''
+    return res
 
 def normalize_numeric_or_null(val: Any, is_integer: bool = False) -> Any:
     """
@@ -314,6 +329,61 @@ def normalize_numeric_or_null(val: Any, is_integer: bool = False) -> Any:
         return int(round(num)) if is_integer else round(num, 2)
     except ValueError:
         return ''
+
+DIRECTION_MAP = {
+    'ĐÔNG': 'Đông', 'DONG': 'Đông', 'EAST': 'Đông', 'E': 'Đông', 'Đ': 'Đông', 'D': 'Đông',
+    'TÂY': 'Tây', 'TAY': 'Tây', 'WEST': 'Tây', 'W': 'Tây', 'T': 'Tây',
+    'NAM': 'Nam', 'SOUTH': 'Nam', 'S': 'Nam', 'N': 'Nam',
+    'BẮC': 'Bắc', 'BAC': 'Bắc', 'NORTH': 'Bắc', 'B': 'Bắc',
+    'ĐÔNG BẮC': 'ĐB', 'DONG BAC': 'ĐB', 'ĐB': 'ĐB', 'DB': 'ĐB', 'NE': 'ĐB', 'NORTHEAST': 'ĐB',
+    'ĐÔNG NAM': 'ĐN', 'DONG NAM': 'ĐN', 'ĐN': 'ĐN', 'DN': 'ĐN', 'SE': 'ĐN', 'SOUTHEAST': 'ĐN',
+    'TÂY BẮC': 'TB', 'TAY BAC': 'TB', 'TB': 'TB', 'NW': 'TB', 'NORTHWEST': 'TB',
+    'TÂY NAM': 'TN', 'TAY NAM': 'TN', 'TN': 'TN', 'SW': 'TN', 'SOUTHWEST': 'TN',
+    'ĐÔNG - BẮC': 'ĐB', 'ĐÔNG-BẮC': 'ĐB', 'ĐÔNG/BẮC': 'ĐB',
+    'ĐÔNG - NAM': 'ĐN', 'ĐÔNG-NAM': 'ĐN', 'ĐÔNG/NAM': 'ĐN',
+    'TÂY - BẮC': 'TB', 'TÂY-BẮC': 'TB', 'TÂY/BẮC': 'TB',
+    'TÂY - NAM': 'TN', 'TÂY-NAM': 'TN', 'TÂY/NAM': 'TN',
+    'CHÍNH ĐÔNG': 'Đông', 'CHÍNH TÂY': 'Tây', 'CHÍNH NAM': 'Nam', 'CHÍNH BẮC': 'Bắc',
+    'ĐB-ĐN': 'ĐB-ĐN', 'ĐB/ĐN': 'ĐB-ĐN', 'TN-TB': 'TN-TB', 'TN/TB': 'TN-TB',
+    'ĐN-TN': 'ĐN-TN', 'ĐN/TN': 'ĐN-TN', 'ĐB-TB': 'ĐB-TB', 'ĐB/TB': 'ĐB-TB'
+}
+
+def normalize_direction(raw_direction: Any) -> str:
+    """
+    Chuẩn hóa hướng nhà / hướng cửa / hướng ban công.
+    Loại bỏ triệt để các giá trị số hoặc text rác (VD: 11.833, 9.920, 32.004).
+    Chỉ chấp nhận các hướng địa lý hợp lệ.
+    """
+    if raw_direction is None:
+        return ''
+    s = str(raw_direction).strip()
+    if not s or re.match(r'^(0|-|n/a|none|null)$', s, re.IGNORECASE):
+        return ''
+
+    # Nếu chứa toàn số và dấu chấm/phẩy -> đây là giá tiền/diện tích bị trôi cột, loại bỏ ngay
+    if re.match(r'^\d+([.,]\d+)?$', s):
+        return ''
+
+    cleaned = re.sub(r'^(HƯỚNG|HUONG|CỬA|BAN CÔNG|BC)\s*', '', s, flags=re.IGNORECASE).strip().upper()
+    cleaned = re.sub(r'\s+', ' ', cleaned)
+
+    if cleaned in DIRECTION_MAP:
+        return DIRECTION_MAP[cleaned]
+
+    # Tra cứu từng phần nếu là hướng ghép (VD: ĐB - ĐN, Đông Bắc - Đông Nam)
+    parts = re.split(r'[-/,+&]', cleaned)
+    if len(parts) == 2:
+        p1 = parts[0].strip()
+        p2 = parts[1].strip()
+        if p1 in DIRECTION_MAP and p2 in DIRECTION_MAP:
+            return f"{DIRECTION_MAP[p1]}-{DIRECTION_MAP[p2]}"
+
+    # Kiểm tra xem có chứa từ khóa hướng hay không
+    for k, v in DIRECTION_MAP.items():
+        if re.search(rf'\b{re.escape(k)}\b', cleaned):
+            return v
+
+    return ''
 
 def repair_drive_url(raw_url: str) -> str:
     """Sửa lỗi thiếu dấu chấm trong URL Google Drive/Docs."""

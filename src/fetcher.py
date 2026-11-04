@@ -9,6 +9,9 @@ import logging
 import threading
 import zipfile
 import xml.etree.ElementTree as ET
+import io
+import csv
+import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, List, Any, Optional, Tuple
 
@@ -25,7 +28,8 @@ from src.normalizer import (
     normalize_high_rise_type,
     infer_grounded_zone,
     infer_grounded_low_rise_type,
-    compute_expiry_warning
+    compute_expiry_warning,
+    normalize_direction
 )
 
 logger = logging.getLogger(__name__)
@@ -177,7 +181,10 @@ def map_columns_from_headers(header_cells: List[str]) -> Dict[str, int]:
         r'^(kpbt|kinh phí bảo trì|kpbt\s*\(tổng\)|kinh phí bảo trì\s*\(kpbt\))$',
         r'^(?!.*(giá|tổng cộng|chưa gồm|gồm vat)).*(kpbt|kinh phí bảo trì)'
     ])
-    col_map["gia_full"] = find_col([r'(gồm vat|giá full|tổng giá|giá niêm yết|giá bán gồm vat)', r'^(giá bán|giá|tổng giá)$'])
+    col_map["gia_full"] = find_col([
+        r'^(?!.*(chưa|chua|trước|truoc)).*(gồm\s*vat|gom\s*vat|giá\s*full|tổng\s*giá|giá\s*niêm\s*yết|giá\s*bán\s*gồm)',
+        r'^(giá\s*bán|giá|tổng\s*giá)$'
+    ])
     col_map["gia_vay"] = find_col([r'(giá vay|vay nh|htls|vay 70)'])
     col_map["gia_tttd"] = find_col([r'(tiến độ|tttđ|tttd|thanh toán chuẩn)'])
     col_map["gia_tts"] = find_col([r'(thanh toán sớm|tts|tt sớm|không vay)'])
@@ -187,12 +194,12 @@ def map_columns_from_headers(header_cells: List[str]) -> Dict[str, int]:
     col_map["csbh"] = find_col([r'(csbh|chính sách)'])
     col_map["bank"] = find_col([r'(ngân hàng|ngan hang|bank)'])
     col_map["note"] = find_col([r'(ghi chú|ghi chu|note)'])
-    col_map["status"] = find_col([r'(trạng thái|trang thai|tình trạng)'])
+    col_map["status"] = find_col([r'(trạng thái|trang thai|tình trạng|check\s*bán|check\s*ban)'])
     col_map["dedicated_exclusive"] = find_col([
-        r'(độc\s*quyền|quỹ\s*độc\s*quyền|căn\s*độc\s*quyền|hàng\s*độc\s*quyền|quỹ\s*độc\s*quyền)',
+        r'(quỹ\s*độc\s*quyền|căn\s*độc\s*quyền|hàng\s*độc\s*quyền|quỹ\s*độc\s*quyền|độc\s*quyền|doc\s*quyen)',
         r'(\bđq\b|\bdq\b|\bqđq\b|\bqdq\b|\bdqd\b)'
     ])
-    col_map["fund_group"] = find_col([r'(nhóm quỹ|nhom quy|loại quỹ|nguồn quỹ|độc quyền|^quỹ$)'])
+    col_map["fund_group"] = find_col([r'(nhóm\s*quỹ|nhom\s*quy|loại\s*quỹ|loai\s*quy|nguồn\s*quỹ|nguon\s*quy|thuộc\s*quỹ)'])
     col_map["chi_can"] = find_col([r'(ảnh chỉ căn|chỉ căn|mặt bằng|layout|hình ảnh|link ảnh)'])
     col_map["ptg"] = find_col([r'(phiếu tính giá|ptg|bảng tính|link ptg|tài liệu)'])
     col_map["issue_date"] = find_col([r'(ngày cấp|ngay cap|ngày vào hàng|ngày cập nhật)'])
@@ -366,27 +373,30 @@ def parse_agency_grid_data(
         if is_general_pool or bool(re.search(r'quỹ chung|quy chung|quỹ cđt|quy cdt', agency_name, re.IGNORECASE)) or is_check_admin:
             is_exclusive = False
             fund_group = 'Quỹ chung'
-        else:
-            # Nguồn của Đại lý phân phối
+        elif is_tab_exclusive:
+            # Tab đại lý có tiêu đề Độc quyền (VD: Giỏ Độc quyền, NSL_ ĐỘC QUYỀN...)
             fund_col = cm.get('dedicated_exclusive', -1)
-            if fund_col == -1:
-                fund_col = cm.get('fund_group', -1)
-
+            raw_excl = get_val(row, fund_col).strip() if fund_col != -1 else ''
+            if re.search(r'^(quỹ\s*chung|chung|\bqc\b)$', raw_excl, re.IGNORECASE):
+                is_exclusive = False
+                fund_group = 'Quỹ chung'
+            else:
+                is_exclusive = True
+                fund_group = 'Độc quyền'
+        else:
+            # Nguồn của Đại lý phân phối thông thường
+            fund_col = cm.get('dedicated_exclusive', -1)
             if fund_col != -1:
-                # Trang tính CÓ cột phân loại quỹ / độc quyền -> phân loại chi tiết theo từng dòng
+                # Trang tính CÓ cột phân loại độc quyền chuyên biệt (Độc quyền, ĐQ...)
                 raw_excl = get_val(row, fund_col).strip()
-                if re.search(r'^(quỹ\s*chung|chung|\bqc\b)$', raw_excl, re.IGNORECASE) or not raw_excl:
-                    is_exclusive = False
-                    fund_group = 'Quỹ chung'
-                elif re.search(r'độc\s*quyền|doc\s*quyen|\b(đq|dq|qđq|qdq|dqd|qr|quỹ\s*riêng|quy\s*rieng|x|có|co|1)\b', raw_excl, re.IGNORECASE):
+                if re.search(r'độc\s*quyền|doc\s*quyen|\b(đq|dq|qđq|qdq|dqd|qr|quỹ\s*riêng|quy\s*rieng|x|có|co|1)\b', raw_excl, re.IGNORECASE):
                     is_exclusive = True
                     fund_group = 'Độc quyền'
                 else:
-                    # Các loại quỹ không mang tính độc quyền (Quỹ CĐT, VHM...) -> Quỹ chung
                     is_exclusive = False
                     fund_group = 'Quỹ chung'
             else:
-                # Trang tính KHÔNG CÓ bất kỳ trường dữ liệu phân loại nào -> 100% căn là Độc quyền của đại lý
+                # Trang tính KHÔNG CÓ cột phân loại độc quyền -> 100% căn là Độc quyền của đại lý
                 is_exclusive = True
                 fund_group = 'Độc quyền'
 
@@ -417,19 +427,36 @@ def parse_agency_grid_data(
         expiry_info = compute_expiry_warning(issue_date)
         expiry_display = expiry_info["display"]
 
-        direction = get_val(row, cm['direction']).strip()
+        direction = normalize_direction(get_val(row, cm['direction']).strip())
         desc = get_val(row, cm['desc']).strip()
 
         if is_low_rise:
             raw_tcbg = get_val(row, cm['tcbg']).strip()
             raw_type = get_val(row, cm['unit_type']).strip()
-            unit_type = infer_grounded_low_rise_type(unit_code, raw_type, raw_tcbg)
-            land_area = sanitize_single_area(get_val(row, cm['land_area']), is_low_rise=True)
-            build_area = sanitize_single_area(get_val(row, cm['build_area']), is_low_rise=True, is_construction=True)
+
+            # Kiểm tra trôi cột do khuyết cột TCBG ở các bảng phụ (như ELITE CAPITAL):
+            # Khi cột TCBG chứa loại hình (LK, SL, ĐL, BT, SH) và cột Loại căn lại chứa số diện tích
+            if raw_tcbg in ['LK', 'SL', 'ĐL', 'BT', 'SH'] and re.match(r'^\d+([.,]\d+)?$', raw_type):
+                actual_unit_type = raw_tcbg
+                actual_land_area = sanitize_single_area(raw_type, is_low_rise=True)
+                actual_build_area = sanitize_single_area(get_val(row, cm['land_area']), is_low_rise=True, is_construction=True)
+                raw_tcbg = ""
+                raw_type = actual_unit_type
+                unit_type = infer_grounded_low_rise_type(unit_code, raw_type, "")
+                land_area = actual_land_area
+                build_area = actual_build_area
+            else:
+                unit_type = infer_grounded_low_rise_type(unit_code, raw_type, raw_tcbg)
+                land_area = sanitize_single_area(get_val(row, cm['land_area']), is_low_rise=True)
+                build_area = sanitize_single_area(get_val(row, cm['build_area']), is_low_rise=True, is_construction=True)
 
             vat_tong = normalize_price_to_vnd(get_val(row, cm['vat_tong']), unit_hint='VAT_KPBT')
             kpbt = normalize_price_to_vnd(get_val(row, cm['kpbt']), unit_hint='VAT_KPBT')
             don_gia_m2 = normalize_price_to_vnd(get_val(row, cm['don_gia_m2']), unit_hint='M2')
+
+            # Đối soát giá: Nếu giá full trùng giá chưa VAT nhưng có tiền VAT > 0 -> Giá full = Chưa VAT + VAT + KPBT
+            if gia_full and gia_chua_vat and gia_full == gia_chua_vat and vat_tong:
+                gia_full = gia_chua_vat + vat_tong + (kpbt or 0)
 
             frontage = normalize_numeric_or_null(get_val(row, cm['frontage']))
             floors = normalize_numeric_or_null(get_val(row, cm['floors']), is_integer=True)
@@ -474,6 +501,10 @@ def parse_agency_grid_data(
             clean_agency = agency_name.strip()
             agency_cell_val = f'=HYPERLINK("{agency_url}"; "{clean_agency}")' if agency_url else clean_agency
 
+            # Đối soát giá cao tầng: nếu giá full trùng giá chưa VAT nhưng có KPBT
+            if gia_full and gia_chua_vat and gia_full == gia_chua_vat and kpbt:
+                gia_full = gia_chua_vat + kpbt
+
             # Khớp chính xác 32 cột chuẩn Cao tầng (thêm cột 32 Hạn cấp hàng)
             row_values = [
                 0, unit_code, resolved_zone, unit_type, direction, tower, floor, axis,
@@ -500,6 +531,73 @@ def parse_agency_grid_data(
 
     return scanned_units
 
+def fetch_agency_via_gviz_csv(
+    file_id: str,
+    target_gid: Optional[Any],
+    agency_name: str,
+    project_key: str,
+    is_low_rise: bool,
+    existing_pool_keys: set,
+    today_str: str,
+    agency_url: str = "",
+    sub_tab: str = "",
+    is_general_pool: bool = False
+) -> List[Dict[str, Any]]:
+    """
+    Tải và phân tích bảng hàng đại lý qua Google Visualization API (CSV endpoint).
+    Bypass triệt để lỗi 403 cannotDownloadFile khi chủ sở hữu khóa tải binary xlsx
+    hoặc khi mã GID không trích xuất được từ metadata openpyxl.
+    """
+    gid_str = str(target_gid) if target_gid is not None else '0'
+    url = f"https://docs.google.com/spreadsheets/d/{file_id}/gviz/tq?tqx=out:csv&gid={gid_str}"
+    logger.info(f"Đang tải qua GViz CSV endpoint: {agency_name} (file: {file_id}, gid: {gid_str})")
+
+    req = urllib.request.Request(
+        url,
+        headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            content = resp.read().decode('utf-8', errors='ignore')
+    except Exception as e:
+        logger.warning(f"Lỗi khi tải GViz CSV cho {agency_name} ({file_id}): {e}")
+        return []
+
+    if not content or '<html' in content.lower():
+        logger.warning(f"GViz CSV trả về HTML/Lỗi cho {agency_name} ({file_id})")
+        return []
+
+    reader = csv.reader(io.StringIO(content))
+    csv_rows = list(reader)
+    if not csv_rows or len(csv_rows) < 2:
+        return []
+
+    grid_rows = []
+    for r in csv_rows:
+        grid_row = []
+        for cell_val in r:
+            val_clean = str(cell_val or '').strip()
+            grid_row.append({
+                'formattedValue': val_clean,
+                'hyperlink': val_clean if val_clean.startswith('http') else '',
+                'color_type': 'neutral'
+            })
+        grid_rows.append(grid_row)
+
+    return parse_agency_grid_data(
+        grid_rows,
+        agency_name=agency_name,
+        project_key=project_key,
+        is_low_rise=is_low_rise,
+        existing_pool_keys=existing_pool_keys,
+        today_str=today_str,
+        row_hidden_flags=None,
+        agency_url=agency_url,
+        sub_tab=sub_tab,
+        sheet_title="",
+        is_general_pool=is_general_pool
+    )
+
 def fetch_agency_from_drive_xlsx(
     file_id: str,
     target_gid: Optional[int],
@@ -515,7 +613,6 @@ def fetch_agency_from_drive_xlsx(
 ) -> List[Dict[str, Any]]:
     """Tải và phân tích bảng hàng đại lý dạng file Excel (.xlsx) lưu trên Google Drive."""
     try:
-        import io
         import openpyxl
         from googleapiclient.http import MediaIoBaseDownload
 
@@ -545,8 +642,19 @@ def fetch_agency_from_drive_xlsx(
             if target_sheet_name and target_sheet_name in wb.sheetnames:
                 sheets_to_scan = [wb[target_sheet_name]]
             else:
-                logger.warning(f"Không tìm thấy sheet tương ứng GID {target_gid} trong file Excel {agency_name} ({file_id}). Bỏ qua link.")
-                return []
+                logger.info(f"Không tìm thấy sheet tương ứng GID {target_gid} trong metadata xlsx {agency_name} ({file_id}). Thử fallback GViz CSV.")
+                return fetch_agency_via_gviz_csv(
+                    file_id=file_id,
+                    target_gid=target_gid,
+                    agency_name=agency_name,
+                    project_key=project_key,
+                    is_low_rise=is_low_rise,
+                    existing_pool_keys=existing_pool_keys,
+                    today_str=today_str,
+                    agency_url=agency_url,
+                    sub_tab=sub_tab,
+                    is_general_pool=is_general_pool
+                )
         else:
             sheets_to_scan = [
                 ws for ws in wb.worksheets
@@ -608,6 +716,21 @@ def fetch_agency_from_drive_xlsx(
                 sub_tab=sub_tab,
                 is_general_pool=is_general_pool
             )
+        # Thử fallback qua GViz CSV nếu lỗi cannotDownloadFile (403), Amplification limit hoặc lỗi đọc openpyxl
+        if any(kw in err_msg.lower() for kw in ["cannotdownloadfile", "403", "amplification", "zipbomb", "badzipfile"]):
+            logger.info(f"Drive download bị chặn/lỗi ({err_msg}). Fallback sang GViz CSV cho {agency_name} ({file_id})")
+            return fetch_agency_via_gviz_csv(
+                file_id=file_id,
+                target_gid=target_gid,
+                agency_name=agency_name,
+                project_key=project_key,
+                is_low_rise=is_low_rise,
+                existing_pool_keys=existing_pool_keys,
+                today_str=today_str,
+                agency_url=agency_url,
+                sub_tab=sub_tab,
+                is_general_pool=is_general_pool
+            )
         logger.warning(f"Lỗi khi đọc bảng hàng Excel .xlsx {agency_name} ({file_id}): {e}")
         return []
 
@@ -644,9 +767,19 @@ def fetch_agency_from_google_sheet(
 
         if not chosen_sheet_title:
             if target_gid is not None:
-                # Nếu GID không tìm thấy: BỎ QUA, không quét nhầm tab đầu tiên!
-                logger.warning(f"Không tìm thấy GID {target_gid} trong file {agency_name} ({file_id}). Bỏ qua link.")
-                return []
+                logger.info(f"Không tìm thấy GID {target_gid} trong Sheets API cho {agency_name} ({file_id}). Thử fallback GViz CSV.")
+                return fetch_agency_via_gviz_csv(
+                    file_id=file_id,
+                    target_gid=target_gid,
+                    agency_name=agency_name,
+                    project_key=project_key,
+                    is_low_rise=is_low_rise,
+                    existing_pool_keys=existing_pool_keys,
+                    today_str=today_str,
+                    agency_url=agency_url,
+                    sub_tab=sub_tab,
+                    is_general_pool=is_general_pool
+                )
             for sh in sheets:
                 if not sh['properties'].get('hidden', False):
                     chosen_sheet_title = sh['properties']['title']
@@ -726,6 +859,20 @@ def fetch_agency_from_google_sheet(
                 sub_tab=sub_tab,
                 is_general_pool=is_general_pool
             )
+        if any(kw in err_msg.lower() for kw in ["403", "permission", "cannotdownloadfile", "amplification", "ratio", "limit", "zipbomb"]):
+            logger.info(f"Sheets API bị chặn/lỗi ({err_msg}). Fallback sang GViz CSV cho {agency_name} ({file_id})")
+            return fetch_agency_via_gviz_csv(
+                file_id=file_id,
+                target_gid=target_gid,
+                agency_name=agency_name,
+                project_key=project_key,
+                is_low_rise=is_low_rise,
+                existing_pool_keys=existing_pool_keys,
+                today_str=today_str,
+                agency_url=agency_url,
+                sub_tab=sub_tab,
+                is_general_pool=is_general_pool
+            )
         logger.warning(f"Lỗi khi đọc bảng hàng đại lý {agency_name} ({file_id}): {e}")
         return []
 
@@ -786,13 +933,17 @@ def fetch_all_agencies_for_project(
     is_low_rise: bool,
     existing_pool_keys: set,
     today_str: str,
-    max_workers: int = 5
-) -> Tuple[List[Dict[str, Any]], set]:
+    max_workers: int = 5,
+    return_link_stats: bool = False
+) -> Any:
     """Tải và quét toàn bộ danh sách đại lý của 1 dự án song song đa luồng.
-    Trả về (all_units, successful_agencies) để phục vụ Smart Upsert chính xác."""
+    Trả về (all_units, successful_agencies) hoặc kèm link_sync_stats nếu return_link_stats=True."""
     all_units = []
     successful_agencies = set()
+    link_sync_stats = {}
     if not agency_links:
+        if return_link_stats:
+            return all_units, successful_agencies, link_sync_stats
         return all_units, successful_agencies
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -810,14 +961,32 @@ def fetch_all_agencies_for_project(
 
         for future in as_completed(futures):
             agency = futures[future]
-            ag_name = agency.get('agency')
+            ag_name = agency.get('agency') or 'Không rõ'
+            url = agency.get('url', '')
+            sub = agency.get('sub', '')
             try:
                 units = future.result()
                 if units is not None:
                     successful_agencies.add(ag_name)
+                    avail = sum(1 for u in units if u.get('status') == 'Còn hàng')
+                    lock = sum(1 for u in units if u.get('status') == 'Đang lock')
+                    sold = sum(1 for u in units if u.get('status') == 'Đã bán')
+                    stat_obj = {
+                        'count': len(units),
+                        'total_units': len(units),
+                        'avail': avail,
+                        'lock': lock,
+                        'sold': sold
+                    }
+                    clean_ag = ag_name.strip().upper()
+                    link_sync_stats[(clean_ag, url.strip(), (sub or '').strip().upper())] = stat_obj
+                    link_sync_stats[(clean_ag, url.strip())] = stat_obj
+                    link_sync_stats[clean_ag] = stat_obj
                     if units:
                         all_units.extend(units)
             except Exception as e:
                 logger.error(f"Ngoại lệ khi quét {ag_name}: {e}")
 
+    if return_link_stats:
+        return all_units, successful_agencies, link_sync_stats
     return all_units, successful_agencies

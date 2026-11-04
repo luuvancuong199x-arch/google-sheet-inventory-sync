@@ -43,6 +43,15 @@ def get_adaptive_interval_sec(now_dt: datetime) -> int:
 
 def get_process_memory_mb() -> float:
     """Đo mức sử dụng RAM hiện tại (Working Set / RSS) của tiến trình Python (MB)."""
+    # 1. Linux (/proc/self/statm)
+    try:
+        with open("/proc/self/statm", "r") as f:
+            fields = f.read().split()
+            return (int(fields[1]) * os.sysconf("SC_PAGE_SIZE")) / (1024 * 1024)
+    except Exception:
+        pass
+
+    # 2. Windows (GetProcessMemoryInfo)
     try:
         import ctypes
         from ctypes import wintypes

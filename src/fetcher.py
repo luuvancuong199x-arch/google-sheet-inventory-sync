@@ -12,6 +12,7 @@ import xml.etree.ElementTree as ET
 import io
 import csv
 import urllib.request
+import unicodedata
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, List, Any, Optional, Tuple
 
@@ -145,7 +146,7 @@ def extract_xlsx_gid_mapping(file_bytes_or_stream) -> Dict[int, str]:
 
 def map_columns_from_headers(header_cells: List[str]) -> Dict[str, int]:
     """Ánh xạ tên cột sang chỉ số cột 0-based."""
-    headers = [str(c or '').lower().strip() for c in header_cells]
+    headers = [unicodedata.normalize('NFC', str(c or '')).lower().strip() for c in header_cells]
     col_map = {}
 
     def find_col(regex_list):
@@ -157,19 +158,27 @@ def map_columns_from_headers(header_cells: List[str]) -> Dict[str, int]:
 
     col_map["stt"] = find_col([r'^stt$'])
     col_map["unit_code"] = find_col([
-        r'^(mã\s*căn|ma\s*can|mã\s*sp|mã\s*sản\s*phẩm|ma\s*san\s*pham|ký\s*hiệu\s*căn|căn\s*số|mã\s*căn\s*mới|mã\s*lô)$',
-        r'(mã\s*căn|ma\s*can|ký\s*hiệu|mã\s*sản\s*phẩm|ma\s*san\s*pham|mã\s*sp|căn\s*hộ)'
+        # Pass 1: Cột định danh chuyên biệt có độ ưu tiên cao nhất (tránh nhầm với Mã căn cũ hoặc Mã căn chỉ gồm số)
+        r'^(mã\s*sản\s*phẩm|ma\s*san\s*pham|mã\s*sp|mã\s*căn\s*mới(\s*/\s*ptg)?|mã\s*chuẩn|ma\s*chuan|mã\s*thương\s*mại|ma\s*thuong\s*mai)$',
+        # Pass 2: Tên căn, mã căn chuẩn
+        r'^(mã\s*căn|ma\s*can|tên\s*căn|ten\s*can|ký\s*hiệu\s*căn|căn\s*số|mã\s*lô)$',
+        # Pass 3: Chứa mã sản phẩm / mã chuẩn / mã thương mại
+        r'(mã\s*sản\s*phẩm|ma\s*san\s*pham|mã\s*sp|mã\s*căn\s*mới|mã\s*chuẩn|mã\s*thương\s*mại)',
+        # Pass 4: Chứa mã căn nhưng không chứa 'cũ'
+        r'(mã\s*căn(?!.*cũ)|ma\s*can(?!.*cu)|tên\s*căn|ten\s*can|ký\s*hiệu|căn\s*hộ)',
+        # Pass 5: Bất kỳ mã căn nào
+        r'(mã\s*căn|ma\s*can)'
     ])
     col_map["zone"] = find_col([r'(phân\s*khu|phan\s*khu|khu|tiểu\s*khu|đường|duong)'])
-    col_map["unit_type"] = find_col([r'(loại\s*hình|loai\s*hinh|loại\s*căn|loai\s*can|loại\s*ch|loại\s*căn\s*hộ|loai\s*can\s*ho)'])
+    col_map["unit_type"] = find_col([r'(loại\s*hình|loai\s*hinh|loại\s*căn|loai\s*can|dòng\s*căn|dong\s*can|loại\s*ch|loại\s*căn\s*hộ|loai\s*can\s*ho)'])
     col_map["tcbg"] = find_col([r'(tcbg|tiêu\s*chuẩn\s*bàn\s*giao|bàn\s*giao)'])
     col_map["direction"] = find_col([r'^(hướng|huong|hướng\s*cửa|hướng\s*ban\s*công|hướng\s*bc)$', r'(hướng|huong)'])
-    col_map["tower"] = find_col([r'^(tòa|tên\s*tòa|toa|block|mã\s*tòa)$', r'(tên\s*tòa|tòa|toa)'])
+    col_map["tower"] = find_col([r'^(tòa|toà|tên\s*(tòa|toà)|toa|block|mã\s*(tòa|toà))$', r'(tên\s*(tòa|toà)|tòa|toà|toa)'])
     col_map["floor"] = find_col([r'^(tầng|tang|khoảng\s*tầng)$', r'(tầng|tang)'])
     col_map["axis"] = find_col([r'(trục|mã\s*trục)'])
     col_map["land_area"] = find_col([r'(dt\s*đất|diện\s*tích\s*đất|dt\s*dat|diện\s*tích\s*lô\s*đất|dtđ)', r'^(diện\s*tích|dt)$'])
     col_map["build_area"] = find_col([r'(dtxd|dt\s*xây\s*dựng|diện\s*tích\s*xây\s*dựng|dt\s*sàn|tổng\s*dtxd)'])
-    col_map["net_area"] = find_col([r'(thông\s*thủy|thong\s*thuy|dt\s*thông\s*thủy|dttt|dt\s*tt)', r'^(diện\s*tích|dt)$'])
+    col_map["net_area"] = find_col([r'(thông\s*(thủy|thuỷ)|thong\s*thuy|dt\s*thông\s*(thủy|thuỷ)|dttt|dt\s*tt)', r'^(diện\s*tích|dt)$'])
     col_map["gross_area"] = find_col([r'(tim\s*tường|tim\s*tuong|dt\s*tim\s*tường)'])
     col_map["bedrooms"] = find_col([r'(số\s*pn|phòng\s*ngủ|so\s*phong\s*ngu)'])
     col_map["wc"] = find_col([r'(số\s*wc|wc)'])
@@ -189,9 +198,9 @@ def map_columns_from_headers(header_cells: List[str]) -> Dict[str, int]:
         r'^(?!.*(chưa|chua|trước|truoc|đơn\s*giá|don\s*gia|/m2|/m²)).*(gồm\s*vat|gom\s*vat|giá\s*full|tổng\s*giá|giá\s*niêm\s*yết|giá\s*bán\s*gồm|giá\s*all-in)',
         r'^(giá\s*bán|giá|tổng\s*giá)$'
     ])
-    col_map["gia_vay"] = find_col([r'(giá\s*vay|vay\s*nh|htls|vay\s*70|vay\s*htls)'])
-    col_map["gia_tttd"] = find_col([r'(tiến\s*độ|tttđ|tttd|thanh\s*toán\s*chuẩn|giá\s*tttđ|giá\s*tttd)'])
-    col_map["gia_tts"] = find_col([r'(thanh\s*toán\s*sớm|tts|tt\s*sớm|không\s*vay|giá\s*tts)'])
+    col_map["gia_vay"] = find_col([r'(giá\s*vay|vay\s*nh|htls|vay\s*70|vay\s*htls|vvnh|giá\s*vvnh)'])
+    col_map["gia_tttd"] = find_col([r'(tiến\s*độ|tttđ|tttd|thanh\s*toán\s*chuẩn|giá\s*tttđ|giá\s*tttd|giá\s*tiến\s*độ)'])
+    col_map["gia_tts"] = find_col([r'(thanh\s*toán\s*sớm|tts|tt\s*sớm|không\s*vay|giá\s*tts|thanh\s*toán\s*nhanh)'])
     col_map["don_gia_m2"] = find_col([r'(đơn\s*giá|don\s*gia|giá/m2|giá\s*/\s*m|tr/m2)'])
     col_map["gift"] = find_col([r'(quà\s*tặng|qua\s*tang|ưu\s*đãi|chiết\s*khấu)'])
     col_map["desc"] = find_col([r'(mô\s*tả|mo\s*ta|view|vị\s*trí)'])
@@ -217,15 +226,15 @@ def detect_header_row(rows: List[List[str]]) -> Optional[Tuple[int, Dict[str, in
     best_score = 0
 
     for r in range(max_scan):
-        row_str = ' | '.join([str(c or '').lower() for c in rows[r]])
+        row_str = ' | '.join([unicodedata.normalize('NFC', str(c or '')).lower() for c in rows[r]])
         score = 0
-        if re.search(r'mã\s*căn|ma\s*can|mã\s*sp|mã\s*sản\s*phẩm|ma\s*san\s*pham|ký\s*hiệu|căn\s*số|mã\s*lô|căn\s*hộ', row_str):
+        if re.search(r'mã\s*căn|ma\s*can|tên\s*căn|ten\s*can|mã\s*sp|mã\s*sản\s*phẩm|ma\s*san\s*pham|mã\s*chuẩn|mã\s*thương\s*mại|ký\s*hiệu|căn\s*số|mã\s*lô|căn\s*hộ', row_str):
             score += 4
-        if re.search(r'diện\s*tích|dien\s*tich|dt\s*đất|dtđ|dtxd|dttt|dt\s*tt|thông\s*thủy', row_str):
+        if re.search(r'diện\s*tích|dien\s*tich|dt\s*đất|dtđ|dtxd|dttt|dt\s*tt|thông\s*(thủy|thuỷ)', row_str):
             score += 3
         if re.search(r'giá|gia\s*ban|tổng\s*giá|giá\s*full|giá\s*vay|giá\s*thuần|tts|tttđ', row_str):
             score += 3
-        if re.search(r'phân\s*khu|loại\s*hình|loại\s*căn|loại\s*ch|hướng|tòa|tầng', row_str):
+        if re.search(r'phân\s*khu|loại\s*hình|loại\s*căn|loại\s*ch|dòng\s*căn|hướng|tòa|toà|tầng', row_str):
             score += 2
 
         if score > best_score:
@@ -278,7 +287,10 @@ def parse_agency_grid_data(
         return {}
 
     def get_val(row, c_idx):
-        return get_cell(row, c_idx).get('formattedValue', '')
+        val = get_cell(row, c_idx).get('formattedValue', '')
+        if isinstance(val, str):
+            return unicodedata.normalize('NFC', val)
+        return val
 
     def get_url(row, c_idx):
         cell = get_cell(row, c_idx)
@@ -309,6 +321,15 @@ def parse_agency_grid_data(
         if re.match(r'^(stt|mã căn|tổng|ghi chú|chú thích|đang bán|đã bán)', raw_unit, re.IGNORECASE):
             continue
 
+        raw_zone = get_val(row, cm['zone']).strip()
+        tower = get_val(row, cm['tower']).strip()
+        floor = get_val(row, cm['floor']).strip()
+        axis = get_val(row, cm['axis']).strip()
+
+        # Nếu cao tầng mà raw_unit chỉ là số (VD: '02', '15') nhưng có tòa hoặc tầng:
+        if not is_low_rise and re.match(r'^\d{1,3}[A-Z]?$', raw_unit) and tower:
+            raw_unit = f"{tower}-{floor}-{raw_unit}" if floor else f"{tower}-{raw_unit}"
+
         unit_code = sanitize_unit_code(raw_unit)
         if not unit_code or len(unit_code) < 2:
             continue
@@ -321,11 +342,7 @@ def parse_agency_grid_data(
         if re.search(r'^(phân\s*khu|bảng\s*hàng|đơn\s*lập|song\s*lập|liền\s*kề|biệt\s*thự|shophouse|tổng\s*cộng|căn\s*hộ|ghi\s*chú|demo|test)$', raw_unit, re.IGNORECASE):
             continue
 
-        raw_zone = get_val(row, cm['zone']).strip()
         resolved_zone = infer_grounded_zone(unit_code, project_key, raw_zone, sub_tab)
-        tower = get_val(row, cm['tower']).strip()
-        floor = get_val(row, cm['floor']).strip()
-        axis = get_val(row, cm['axis']).strip()
 
         if not is_low_rise:
             hr_norm = normalize_high_rise_unit_floor_axis(unit_code, tower, floor, axis)
@@ -651,7 +668,7 @@ def fetch_agency_via_gviz_csv(
     for r in csv_rows:
         grid_row = []
         for cell_val in r:
-            val_clean = str(cell_val or '').strip()
+            val_clean = unicodedata.normalize('NFC', str(cell_val or '')).strip()
             grid_row.append({
                 'formattedValue': val_clean,
                 'hyperlink': val_clean if val_clean.startswith('http') else '',
@@ -754,7 +771,7 @@ def fetch_agency_from_drive_xlsx(
         all_units = []
         for ws in sheets_to_scan:
             # Bỏ qua các tab bị ẩn (sheet hidden/veryHidden) nếu không chỉ định GID hoặc không khớp sub_tab
-            if getattr(ws, 'sheet_state', 'visible') != 'visible' and not (sub_tab and re.search(re.escape(sub_tab), ws.title, re.IGNORECASE)):
+            if getattr(ws, 'sheet_state', 'visible') != 'visible' and target_gid is None and not (sub_tab and re.search(re.escape(sub_tab), ws.title, re.IGNORECASE)):
                 continue
             grid_rows = []
             row_hidden_flags = []
@@ -806,23 +823,20 @@ def fetch_agency_from_drive_xlsx(
                 sub_tab=sub_tab,
                 is_general_pool=is_general_pool
             )
-        # Thử fallback qua GViz CSV nếu lỗi cannotDownloadFile (403), Amplification limit hoặc lỗi đọc openpyxl
-        if any(kw in err_msg.lower() for kw in ["cannotdownloadfile", "403", "amplification", "zipbomb", "badzipfile"]):
-            logger.info(f"Drive download bị chặn/lỗi ({err_msg}). Fallback sang GViz CSV cho {agency_name} ({file_id})")
-            return fetch_agency_via_gviz_csv(
-                file_id=file_id,
-                target_gid=target_gid,
-                agency_name=agency_name,
-                project_key=project_key,
-                is_low_rise=is_low_rise,
-                existing_pool_keys=existing_pool_keys,
-                today_str=today_str,
-                agency_url=agency_url,
-                sub_tab=sub_tab,
-                is_general_pool=is_general_pool
-            )
-        logger.warning(f"Lỗi khi đọc bảng hàng Excel .xlsx {agency_name} ({file_id}): {e}")
-        return []
+        # Thử fallback qua GViz CSV nếu lỗi download, 403, amplification hoặc lỗi openpyxl không đọc được workbook
+        logger.info(f"Drive download/xlsx đọc bị lỗi ({err_msg}). Fallback sang GViz CSV cho {agency_name} ({file_id})")
+        return fetch_agency_via_gviz_csv(
+            file_id=file_id,
+            target_gid=target_gid,
+            agency_name=agency_name,
+            project_key=project_key,
+            is_low_rise=is_low_rise,
+            existing_pool_keys=existing_pool_keys,
+            today_str=today_str,
+            agency_url=agency_url,
+            sub_tab=sub_tab,
+            is_general_pool=is_general_pool
+        )
     finally:
         if wb is not None:
             try:
@@ -852,12 +866,12 @@ def fetch_agency_from_google_sheet(
 ) -> List[Dict[str, Any]]:
     """Tải và phân tích bảng hàng đại lý dạng Google Sheets bản địa."""
     service = _get_thread_sheets_service(sheets_service)
+    chosen_sheet_title = None
+    chosen_sheet_gid = target_gid
     try:
         # Lấy metadata danh sách sheet để tìm sheetId phù hợp
         meta = _execute_with_retry(service.spreadsheets().get(spreadsheetId=file_id))
         sheets = meta.get('sheets', [])
-        chosen_sheet_title = None
-        chosen_sheet_gid = target_gid
 
         if target_gid is not None:
             for sh in sheets:

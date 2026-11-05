@@ -314,5 +314,81 @@ def test_heuristic_recovery_when_headers_unmapped():
     assert parsed[0]["row_values"][14] == 3500000000
     assert parsed[0]["status"] == "Còn hàng"
 
+def test_nfd_unicode_header_mapping_and_parsing():
+    # NFD unicode headers as found in NOVASKY, QUEENLAND, MDL
+    headers = [
+        'BA\u0309NG HA\u0300NG TOA\u0300',
+        'MA\u0303 C\u0102N',
+        'DO\u0300NG C\u0102N',
+        'H\u01af\u01a0\u0301NG',
+        'DI\u00ca\u0323N TI\u0301CH',
+        'GIA\u0301 TI\u00ca\u0301N \u0110O\u0302\u0323'
+    ]
+    grid_rows = [
+        [{"formattedValue": h} for h in headers],
+        [
+            {"formattedValue": "L2"},
+            {"formattedValue": "HH-B-10-15"},
+            {"formattedValue": "2BR+1MR"},
+            {"formattedValue": "TB-TN"},
+            {"formattedValue": "101,7"},
+            {"formattedValue": "16.820.083.065"}
+        ]
+    ]
+    parsed = parse_agency_grid_data(
+        grid_rows,
+        agency_name="NOVASKY",
+        project_key="LUMIÈRE Hanoi Seasons Garden",
+        is_low_rise=False,
+        existing_pool_keys=set(),
+        today_str="05/11/2026"
+    )
+    assert len(parsed) == 1
+    assert parsed[0]["unit_key"] == "HH-B-10-15"
+    assert parsed[0]["row_values"][8] == 101.7
+    assert parsed[0]["row_values"][14] == 16_820_083_065
+    assert parsed[0]["status"] == "Còn hàng"
+
+def test_ten_can_and_ma_chuan_mapping():
+    # Headers with 'Tên Căn', 'Mã chuẩn', 'Mã căn mới/PTG'
+    headers_hsg = ['Tòa', 'Tên Căn', 'DT Thông thủy', 'Giá tiến độ chuẩn']
+    col_map_hsg = map_columns_from_headers(headers_hsg)
+    assert col_map_hsg["unit_code"] == 1
+
+    headers_hocmon = ['STT', 'Khu', 'Mã chuẩn', 'DT Đất', 'Giá full']
+    col_map_hm = map_columns_from_headers(headers_hocmon)
+    assert col_map_hm["unit_code"] == 2
+
+    headers_cangio = ['STT', 'Mã căn cũ', 'Phân khu', 'Mã căn mới/PTG', 'DT đất', 'Giá full']
+    col_map_cg = map_columns_from_headers(headers_cangio)
+    assert col_map_cg["unit_code"] == 3  # Chooses Mã căn mới/PTG instead of Mã căn cũ!
+
+def test_high_rise_numeric_unit_code_composition():
+    # High-rise table where unit code is pure number but tower & floor exist
+    headers = ['STT', 'Toà', 'Tầng', 'Mã căn', 'DT Thông thủy', 'Giá bán']
+    grid_rows = [
+        [{"formattedValue": h} for h in headers],
+        [
+            {"formattedValue": "1"},
+            {"formattedValue": "M1"},
+            {"formattedValue": "08A"},
+            {"formattedValue": "02"},
+            {"formattedValue": "31,68"},
+            {"formattedValue": "2.209.052.131"}
+        ]
+    ]
+    parsed = parse_agency_grid_data(
+        grid_rows,
+        agency_name="Aura",
+        project_key="MIK OCP",
+        is_low_rise=False,
+        existing_pool_keys=set(),
+        today_str="05/11/2026"
+    )
+    assert len(parsed) == 1
+    assert parsed[0]["unit_key"] == "M1-08A-02"
+    assert parsed[0]["status"] == "Còn hàng"
+
+
 
 

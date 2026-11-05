@@ -71,11 +71,6 @@ TARGET_PROJECTS = {
         'id': '1LtzwcF6xP-ZdfuNoschNN3-LhbP1fuHqsiA_ad75jJQ',
         'type': 'LOW_RISE',
         'name': 'Dự án OCP2-3'
-    },
-    'Global Gate': {
-        'id': '1qoy0hVlc-RWJNeAmGDIpDZstBQb2SMqfp_ypBf6Dwbc',
-        'type': 'LOW_RISE',
-        'name': 'Dự án Vinhomes Global Gate'
     }
 }
 

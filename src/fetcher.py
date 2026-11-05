@@ -480,7 +480,7 @@ def parse_agency_grid_data(
         # Ngày cấp hàng và tính hạn cấp (30 ngày)
         raw_issue = get_val(row, cm['issue_date']).strip()
         issue_dict = normalize_csbh_date(raw_issue)
-        issue_date = issue_dict['csbh_date'] or today_str
+        issue_date = issue_dict['csbh_date'] or ""
         expiry_info = compute_expiry_warning(issue_date)
         expiry_display = expiry_info["display"]
 

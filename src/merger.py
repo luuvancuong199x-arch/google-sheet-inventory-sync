@@ -27,9 +27,12 @@ def natural_sort_key(s: str) -> list:
 def make_sort_key(row: List[Any], is_low_rise: bool) -> tuple:
     """
     Tạo khóa sắp xếp đa cấp:
+    - Cấp 0: Phân nhóm Bán / Chưa bán:
+             0: Các căn đang hoạt động (Còn hàng, Đang lock, v.v.) -> nằm ở phía trên
+             1: Các căn Đã bán -> gom toàn bộ xuống cuối trang tính
     - Cấp 1: Gom theo nhóm Quỹ (0: Quỹ chung - hiển thị đầu bảng, 1: Đại lý phân phối A-Z)
     - Cấp 2: Tên Đại lý (A-Z)
-    - Cấp 3: Trong từng Đại lý/Quỹ chung: Trạng thái (1: Còn hàng, 2: Đang lock, 3: Đã bán)
+    - Cấp 3: Trong từng Đại lý/Quỹ chung: Trạng thái (1: Còn hàng, 2: Đang lock, 3: Đã bán, 4: Khác)
     - Cấp 4: Trong cùng trạng thái: Mã căn A-Z (natural sort)
     """
     agency_col_idx = 36 if is_low_rise else 29
@@ -45,16 +48,20 @@ def make_sort_key(row: List[Any], is_low_rise: bool) -> tuple:
     status_raw = str(row[status_col_idx] if len(row) > status_col_idx else '').strip().lower()
     if 'còn' in status_raw or 'con' in status_raw:
         status_rank = 1
+        is_sold = 0
     elif 'lock' in status_raw:
         status_rank = 2
+        is_sold = 0
     elif 'bán' in status_raw or 'ban' in status_raw or 'sold' in status_raw:
         status_rank = 3
+        is_sold = 1
     else:
         status_rank = 4
+        is_sold = 0
 
     unit_code_raw = str(row[unit_code_col_idx] if len(row) > unit_code_col_idx else '').strip()
 
-    return (group_rank, clean_agency, status_rank, natural_sort_key(unit_code_raw))
+    return (is_sold, group_rank, clean_agency, status_rank, natural_sort_key(unit_code_raw))
 
 def count_filled_prices(row_values: List[Any], is_low_rise: bool) -> int:
     """Đếm số trường giá đã được điền thông tin."""
@@ -197,15 +204,21 @@ def smart_upsert_pool(
             if old_agency and new_agency and old_agency != new_agency:
                 # Điều chuyển giỏ hàng sang đại lý mới hoặc Quỹ chung:
                 # Reset ngày cấp hàng = ngày hiện tại để tính chu kỳ 30 ngày mới cho chủ sở hữu mới
-                if today_str:
+                if not scanned_row[issue_date_col_idx] and today_str:
                     scanned_row[issue_date_col_idx] = today_str
             else:
-                if not scanned_row[issue_date_col_idx] and old_issue_date:
-                    scanned_row[issue_date_col_idx] = old_issue_date
+                # Cùng đại lý: Ưu tiên bảo toàn ngày cấp hàng ban đầu đã lưu trong kho cũ
+                if old_issue_date:
+                    if not scanned_row[issue_date_col_idx]:
+                        scanned_row[issue_date_col_idx] = old_issue_date
+                elif not scanned_row[issue_date_col_idx] and today_str:
+                    scanned_row[issue_date_col_idx] = today_str
         elif key in master_pool:
             old_issue_date = master_pool[key][issue_date_col_idx] if len(master_pool[key]) > issue_date_col_idx else ""
-            if not scanned_row[issue_date_col_idx] and old_issue_date:
+            if old_issue_date and not scanned_row[issue_date_col_idx]:
                 scanned_row[issue_date_col_idx] = old_issue_date
+            elif not scanned_row[issue_date_col_idx] and today_str:
+                scanned_row[issue_date_col_idx] = today_str
         else:
             # Căn mới hoàn toàn
             if not scanned_row[issue_date_col_idx] and today_str:

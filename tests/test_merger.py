@@ -163,8 +163,10 @@ def test_sorting_by_agency_status_unit_code():
     final_rows = smart_upsert_pool({}, scanned_units, is_low_rise=True)
     assert len(final_rows) == 6
 
-    # Verify Agency A group comes first, sorted Còn hàng -> Đang lock -> Đã bán
-    expected_order = ["A-01", "A-02", "A-03", "B-01", "B-02", "B-03"]
+    # Verify:
+    # 1. Các căn hoạt động (Còn hàng, Đang lock) luôn nằm ở phần trên (nhóm theo Đại lý A-Z)
+    # 2. Toàn bộ các căn Đã bán bị đẩy xuống đáy của trang tính (không nằm xen kẽ trong nhóm đại lý)
+    expected_order = ["A-01", "A-02", "B-01", "B-02", "A-03", "B-03"]
     actual_order = [r[2] for r in final_rows]
     assert actual_order == expected_order
 
@@ -471,3 +473,72 @@ def test_richer_pricing_overrides_sparse_agency_when_both_active():
 
 
 
+
+
+def test_issue_date_preserved_on_repeated_sync():
+    """
+    Kiểm tra bảo toàn ngày cấp hàng:
+    - Căn hộ đã có trong kho từ hôm qua (04/11/2026), hôm nay (05/11/2026) quét lại không có ngày cấp:
+      -> PHẢI giữ nguyên 04/11/2026.
+    - Căn hộ mới toanh hôm nay xuất hiện lần đầu:
+      -> Được gán 05/11/2026.
+    - Căn hộ chuyển từ Agency A sang Agency B hôm nay:
+      -> Được gán 05/11/2026.
+    """
+    existing_pool = {
+        "LK-OLD": {
+            "unit_key": "LK-OLD",
+            "row_values": [1, "Khu A", "LK-OLD", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng", "Độc quyền"] + [""] * 3 + ["Agency A", "04/11/2026", "Còn 29 ngày"]
+        },
+        "LK-TRANSFER": {
+            "unit_key": "LK-TRANSFER",
+            "row_values": [2, "Khu A", "LK-TRANSFER", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng", "Độc quyền"] + [""] * 3 + ["Agency A", "04/11/2026", "Còn 29 ngày"]
+        }
+    }
+
+    scanned_units = [
+        # LK-OLD: quét lại cùng Agency A, nguồn không ghi ngày cấp (để rỗng)
+        {
+            "unit_key": "LK-OLD",
+            "agency_name": "Agency A",
+            "is_exclusive": True,
+            "status": "Còn hàng",
+            "row_values": [0, "Khu A", "LK-OLD", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng", "Độc quyền"] + [""] * 3 + ["Agency A", "", ""]
+        },
+        # LK-TRANSFER: quét sang Agency B (chuyển đại lý), nguồn không ghi ngày cấp
+        {
+            "unit_key": "LK-TRANSFER",
+            "agency_name": "Agency B",
+            "is_exclusive": True,
+            "status": "Còn hàng",
+            "row_values": [0, "Khu A", "LK-TRANSFER", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng", "Độc quyền"] + [""] * 3 + ["Agency B", "", ""]
+        },
+        # LK-NEW: Căn mới toanh hôm nay
+        {
+            "unit_key": "LK-NEW",
+            "agency_name": "Agency A",
+            "is_exclusive": True,
+            "status": "Còn hàng",
+            "row_values": [0, "Khu A", "LK-NEW", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng", "Độc quyền"] + [""] * 3 + ["Agency A", "", ""]
+        }
+    ]
+
+    final_rows = smart_upsert_pool(
+        existing_pool,
+        scanned_units,
+        is_low_rise=True,
+        today_str="05/11/2026",
+        successful_agencies={"Agency A", "Agency B"}
+    )
+
+    by_key = {r[2]: r for r in final_rows}
+
+    # LK-OLD must keep 04/11/2026 (col 37)
+    assert by_key["LK-OLD"][37] == "04/11/2026"
+
+    # LK-TRANSFER must update to 05/11/2026 because owner changed
+    assert by_key["LK-TRANSFER"][37] == "05/11/2026"
+    assert by_key["LK-TRANSFER"][36] == "Agency B"
+
+    # LK-NEW must get 05/11/2026 because it is brand new
+    assert by_key["LK-NEW"][37] == "05/11/2026"

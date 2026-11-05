@@ -5,10 +5,10 @@ from unittest.mock import MagicMock
 from src.auth import get_credentials, get_sheets_service
 
 def test_get_credentials_missing(monkeypatch):
+    monkeypatch.setattr("src.auth._load_env_if_needed", lambda: None)
     monkeypatch.delenv("GCP_SA_KEY", raising=False)
     monkeypatch.delenv("GOOGLE_APPLICATION_CREDENTIALS", raising=False)
-    if os.path.exists("credentials.json"):
-        monkeypatch.setattr(os.path, "exists", lambda x: False)
+    monkeypatch.setattr(os.path, "exists", lambda x: False)
     
     assert get_credentials() is None
 
@@ -19,6 +19,7 @@ def test_get_sheets_service_raises_when_no_credentials(monkeypatch):
     assert "Chưa cấu hình Service Account" in str(exc_info.value)
 
 def test_get_credentials_from_env_json(monkeypatch):
+    monkeypatch.setattr("src.auth._load_env_if_needed", lambda: None)
     fake_creds = {
         "type": "service_account",
         "project_id": "test-project",

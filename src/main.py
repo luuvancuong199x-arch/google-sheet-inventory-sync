@@ -64,10 +64,35 @@ def sync_single_project(
     force_sheet_write: bool = False
 ) -> dict:
     """Đồng bộ một dự án cụ thể (Đích Kép: Google Sheets + PostgreSQL)."""
+    # Nếu gọi MAS CAO TẦNG tổng hợp, tự động điều phối đồng bộ cả 4 dự án thành viên
+    if project_key.strip().upper() == 'MAS CAO TẦNG':
+        mas_keys = ['MGC', 'MEL', 'HSG', 'LEP']
+        total_units = 0
+        total_db = 0
+        total_dur = 0.0
+        for mk in mas_keys:
+            res = sync_single_project(
+                sheets_service, mk, today_str, dry_run=dry_run,
+                max_workers=max_workers, write_db=write_db,
+                force_sheet_write=force_sheet_write
+            )
+            total_units += res.get("units", 0)
+            total_db += res.get("db_upserted", 0)
+            total_dur += res.get("duration", 0.0)
+        return {
+            "project": "Dự án MAS - Cao tầng (MGC, MEL, HSG, LEP)",
+            "units": total_units,
+            "db_upserted": total_db,
+            "db_write_duration": 0.0,
+            "sheet_skipped_no_diff": False,
+            "duration": total_dur,
+            "project_stats": overall_project_stats,
+        }
+
     config = TARGET_PROJECTS.get(project_key)
     if not config:
         for k, v in TARGET_PROJECTS.items():
-            if k.strip().lower() == project_key.strip().lower():
+            if k.strip().lower() == project_key.strip().lower() or v.get('name', '').strip().lower() == project_key.strip().lower():
                 project_key = k
                 config = v
                 break
@@ -78,8 +103,10 @@ def sync_single_project(
     target_id = config['id']
     is_low_rise = (config['type'] == 'LOW_RISE')
     headers = LOW_RISE_HEADERS if is_low_rise else HIGH_RISE_HEADERS
+    sub_tab = config.get('sub_tab')
+    target_tab_name = config.get('target_tab', sub_tab or 'Bảng hàng chuẩn hóa')
 
-    logger.info(f"==> BẮT ĐẦU ĐỒNG BỘ: {project_name} (ID: {target_id})")
+    logger.info(f"==> BẮT ĐẦU ĐỒNG BỘ: {project_name} (ID: {target_id}, Tab: {target_tab_name})")
     start_time = time.time()
     total_units_updated = 0
     total_db_upserted = 0
@@ -92,136 +119,63 @@ def sync_single_project(
         "expiring_soon": 0, "avail": 0, "lock": 0, "sold": 0
     }
 
-    if project_key == 'MAS CAO TẦNG' and config.get('sub_tabs'):
-        for sub_tab in config['sub_tabs']:
-            logger.info(f"--- Đang xử lý phân khu MAS: {sub_tab} ---")
-            existing_pool = read_existing_target_pool(
-                sheets_service, target_id, sub_tab, is_low_rise=False
-            )
-            agency_links = get_agency_links_from_target_sheet(
-                sheets_service, target_id, sub_tab=sub_tab
-            )
-            if not agency_links:
-                agency_links = get_project_agency_links(
-                    sheets_service, project_key, sub_tab=sub_tab
-                )
-            logger.info(f"Tìm thấy {len(agency_links)} link đại lý cho phân khu {sub_tab}")
-
-            scanned, successful_agencies, link_sync_stats = fetch_all_agencies_for_project(
-                sheets_service,
-                agency_links,
-                project_key,
-                is_low_rise=False,
-                existing_pool_keys=set(existing_pool.keys()),
-                today_str=today_str,
-                max_workers=max_workers,
-                return_link_stats=True
-            )
-            overall_link_sync_stats.update(link_sync_stats)
-
-            merged_rows, stats = smart_upsert_pool(
-                existing_pool, scanned, is_low_rise=False, today_str=today_str,
-                successful_agencies=successful_agencies, return_stats=True
-            )
-
-            for ag, a_s in stats["agency_stats"].items():
-                if ag not in overall_agency_stats:
-                    overall_agency_stats[ag] = {
-                        "total_units": 0, "new_today": 0, "sold_today": 0,
-                        "expiring_soon": 0, "avail": 0, "lock": 0, "sold": 0
-                    }
-                for k in overall_agency_stats[ag]:
-                    overall_agency_stats[ag][k] += a_s.get(k, 0)
-                overall_agency_stats[(ag, sub_tab.strip().upper())] = a_s
-
-            for k in overall_project_stats:
-                overall_project_stats[k] += stats["project_stats"].get(k, 0)
-
-            changed = has_inventory_changed(existing_pool, merged_rows, is_low_rise=False)
-            if not dry_run:
-                if changed or force_sheet_write:
-                    write_normalized_inventory(
-                        sheets_service, target_id, sub_tab, headers, merged_rows, is_low_rise=False
-                    )
-                    logger.info(f"Đã cập nhật {len(merged_rows)} căn vào tab '{sub_tab}'")
-                else:
-                    sheet_skipped_no_diff = True
-                    logger.info(
-                        f"⚡ Phân khu '{sub_tab}' không có thay đổi dữ liệu -> "
-                        f"Bỏ qua ghi đè Google Sheet để tiết kiệm Quota"
-                    )
-
-                if write_db:
-                    t_db = time.time()
-                    db_res = bulk_upsert_products_to_db(
-                        rows=merged_rows,
-                        project_key=project_key,
-                        is_low_rise=False,
-                        sub_tab=sub_tab,
-                    )
-                    db_write_duration += (time.time() - t_db)
-                    total_db_upserted += db_res.get("upserted", 0)
-
-            total_units_updated += len(merged_rows)
-    else:
-        target_tab_name = 'Bảng hàng chuẩn hóa'
-        existing_pool = read_existing_target_pool(
-            sheets_service, target_id, target_tab_name, is_low_rise=is_low_rise
+    existing_pool = read_existing_target_pool(
+        sheets_service, target_id, target_tab_name, is_low_rise=is_low_rise
+    )
+    agency_links = get_agency_links_from_target_sheet(
+        sheets_service, target_id, sub_tab=sub_tab
+    )
+    if not agency_links:
+        agency_links = get_project_agency_links(
+            sheets_service, project_key, sub_tab=sub_tab
         )
-        agency_links = get_agency_links_from_target_sheet(
-            sheets_service, target_id, sub_tab=None
-        )
-        if not agency_links:
-            agency_links = get_project_agency_links(
-                sheets_service, project_key, sub_tab=None
+    logger.info(f"Tìm thấy {len(agency_links)} link đại lý cho dự án {project_name}")
+
+    scanned, successful_agencies, link_sync_stats = fetch_all_agencies_for_project(
+        sheets_service,
+        agency_links,
+        project_key,
+        is_low_rise=is_low_rise,
+        existing_pool_keys=set(existing_pool.keys()),
+        today_str=today_str,
+        max_workers=max_workers,
+        return_link_stats=True
+    )
+    overall_link_sync_stats.update(link_sync_stats)
+
+    merged_rows, stats = smart_upsert_pool(
+        existing_pool, scanned, is_low_rise=is_low_rise, today_str=today_str,
+        successful_agencies=successful_agencies, return_stats=True
+    )
+
+    overall_agency_stats = stats["agency_stats"]
+    overall_project_stats = stats["project_stats"]
+    total_units_updated = len(merged_rows)
+
+    changed = has_inventory_changed(existing_pool, merged_rows, is_low_rise=is_low_rise)
+    if not dry_run:
+        if changed or force_sheet_write:
+            write_normalized_inventory(
+                sheets_service, target_id, target_tab_name, headers, merged_rows, is_low_rise=is_low_rise
             )
-        logger.info(f"Tìm thấy {len(agency_links)} link đại lý cho dự án {project_name}")
+            logger.info(f"Đã cập nhật {total_units_updated} căn vào tab '{target_tab_name}'")
+        else:
+            sheet_skipped_no_diff = True
+            logger.info(
+                f"⚡ Dữ liệu '{project_name}' không thay đổi so với Sheet đích -> "
+                f"Bỏ qua bước ghi đè Google Sheet (Tiết kiệm Quota & chống phình lịch sử)"
+            )
 
-        scanned, successful_agencies, link_sync_stats = fetch_all_agencies_for_project(
-            sheets_service,
-            agency_links,
-            project_key,
-            is_low_rise=is_low_rise,
-            existing_pool_keys=set(existing_pool.keys()),
-            today_str=today_str,
-            max_workers=max_workers,
-            return_link_stats=True
-        )
-        overall_link_sync_stats.update(link_sync_stats)
-
-        merged_rows, stats = smart_upsert_pool(
-            existing_pool, scanned, is_low_rise=is_low_rise, today_str=today_str,
-            successful_agencies=successful_agencies, return_stats=True
-        )
-
-        overall_agency_stats = stats["agency_stats"]
-        overall_project_stats = stats["project_stats"]
-        total_units_updated = len(merged_rows)
-
-        changed = has_inventory_changed(existing_pool, merged_rows, is_low_rise=is_low_rise)
-        if not dry_run:
-            if changed or force_sheet_write:
-                write_normalized_inventory(
-                    sheets_service, target_id, target_tab_name, headers, merged_rows, is_low_rise=is_low_rise
-                )
-                logger.info(f"Đã cập nhật {total_units_updated} căn vào tab '{target_tab_name}'")
-            else:
-                sheet_skipped_no_diff = True
-                logger.info(
-                    f"⚡ Dữ liệu '{project_name}' không thay đổi so với Sheet đích -> "
-                    f"Bỏ qua bước ghi đè Google Sheet (Tiết kiệm Quota & chống phình lịch sử)"
-                )
-
-            if write_db:
-                t_db = time.time()
-                db_res = bulk_upsert_products_to_db(
-                    rows=merged_rows,
-                    project_key=project_key,
-                    is_low_rise=is_low_rise,
-                    sub_tab=None,
-                )
-                db_write_duration += (time.time() - t_db)
-                total_db_upserted += db_res.get("upserted", 0)
+        if write_db:
+            t_db = time.time()
+            db_res = bulk_upsert_products_to_db(
+                rows=merged_rows,
+                project_key=project_key,
+                is_low_rise=is_low_rise,
+                sub_tab=sub_tab,
+            )
+            db_write_duration += (time.time() - t_db)
+            total_db_upserted += db_res.get("upserted", 0)
 
     logger.info(
         f"📊 Biến động trong ngày: 🟢 Căn mới hôm nay: +{overall_project_stats['new_today']} | "
@@ -263,9 +217,9 @@ def sync_single_project(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Hệ thống đồng bộ bảng hàng 12 dự án bất động sản")
-    parser.add_argument("--all", action="store_true", help="Đồng bộ toàn bộ 12 dự án")
-    parser.add_argument("--project", type=str, help="Đồng bộ riêng 1 dự án (ví dụ: 'làng vân', 'VRI'...)")
+    parser = argparse.ArgumentParser(description="Hệ thống đồng bộ bảng hàng các dự án bất động sản")
+    parser.add_argument("--all", action="store_true", help="Đồng bộ toàn bộ dự án")
+    parser.add_argument("--project", type=str, help="Đồng bộ riêng 1 dự án (ví dụ: 'làng vân', 'VRI', 'MGC'...)")
     parser.add_argument("--dry-run", action="store_true", help="Chạy quét thử nghiệm, không ghi đè vào Sheet đích")
     parser.add_argument("--max-workers", type=int, default=5, help="Số luồng quét song song (mặc định 5)")
     parser.add_argument("--write-db", action="store_true", help="Ghi trực tiếp dữ liệu vào PostgreSQL bảng products")
@@ -289,7 +243,7 @@ def main():
         )
     elif args.all or not args.project:
         logger.info("==================================================")
-        logger.info("🚀 BẮT ĐẦU ĐỒNG BỘ TOÀN BỘ 12 DỰ ÁN BẤT ĐỘNG SẢN")
+        logger.info("🚀 BẮT ĐẦU ĐỒNG BỘ TOÀN BỘ CÁC DỰ ÁN BẤT ĐỘNG SẢN")
         logger.info("==================================================")
         summary = []
         for p_key in TARGET_PROJECTS:

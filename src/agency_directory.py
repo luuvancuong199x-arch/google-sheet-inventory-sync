@@ -412,7 +412,10 @@ def compute_project_stats_from_sheet(
 ) -> Dict[str, Any]:
     """Quét dữ liệu hiện tại trên sheet đích để tổng hợp thống kê biến động ngày."""
     is_low_rise = (cfg['type'] == 'LOW_RISE')
-    sub_tabs = cfg.get('sub_tabs') or ['Bảng hàng chuẩn hóa']
+    if spreadsheet_id == '1fV1_ZKQXVzsrdMa8ElSpVu-32cj4vPTzgftN81sDynM':
+        sub_tabs = ['MGC', 'MEL', 'HSG', 'LEP']
+    else:
+        sub_tabs = cfg.get('sub_tabs') or ([cfg['sub_tab']] if 'sub_tab' in cfg else ['Bảng hàng chuẩn hóa'])
     agency_col_idx = 36 if is_low_rise else 29
     status_col_idx = 31 if is_low_rise else 27
     issue_date_col_idx = 37 if is_low_rise else 30
@@ -528,7 +531,8 @@ def update_project_agency_directory(
             for st in sub_tabs:
                 agency_links.extend(get_project_agency_links(sheets_service, project_key, sub_tab=st))
         else:
-            agency_links = get_project_agency_links(sheets_service, project_key)
+            sub_tab = cfg.get('sub_tab')
+            agency_links = get_project_agency_links(sheets_service, project_key, sub_tab=sub_tab)
 
     if not agency_links:
         logger.info(f"Không có link đại lý nào cho dự án {project_key}")

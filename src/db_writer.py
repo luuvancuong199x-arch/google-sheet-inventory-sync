@@ -46,13 +46,22 @@ VHUB_PROJECT_MAP: Dict[str, Tuple[str, str]] = {
     "OCP2-3": ("vinhomes-ocean-park-3", "VINHOMES OCEAN PARK 2-3"),
     "Global Gate": ("vinhomes-global-gate", "VINHOMES GLOBAL GATE"),
     "Vinhomes Global Gate": ("vinhomes-global-gate", "VINHOMES GLOBAL GATE"),
+    "MGC": ("masteri-grand-coast", "MASTERI GRAND COAST"),
+    "Masteri Grand Coast": ("masteri-grand-coast", "MASTERI GRAND COAST"),
+    "MEL": ("masteri-era-landmark", "MASTERI ERA LANDMARK"),
+    "Masteri Era Landmark": ("masteri-era-landmark", "MASTERI ERA LANDMARK"),
+    "HSG": ("lumiere-hanoi-seasons-garden", "LUMIÈRE Hanoi Seasons Garden"),
+    "LUMIÈRE Hanoi Seasons Garden": ("lumiere-hanoi-seasons-garden", "LUMIÈRE Hanoi Seasons Garden"),
+    "LEP": ("lumiere-essence-peak", "LUMIÈRE Essence Peak"),
+    "LUMIÈRE Essence Peak": ("lumiere-essence-peak", "LUMIÈRE Essence Peak"),
+    "lumiere-essence-peak": ("lumiere-essence-peak", "LUMIÈRE Essence Peak"),
 }
 
 VHUB_MAS_SUBTAB_MAP: Dict[str, Tuple[str, str]] = {
     "MGC": ("masteri-grand-coast", "MASTERI GRAND COAST"),
     "HSG": ("lumiere-hanoi-seasons-garden", "LUMIÈRE Hanoi Seasons Garden"),
     "MEL": ("masteri-era-landmark", "MASTERI ERA LANDMARK"),
-    "LEP": ("lumiere-evergreen-prime", "LUMIÈRE EVERGREEN"),
+    "LEP": ("lumiere-essence-peak", "LUMIÈRE Essence Peak"),
 }
 
 DIRECTION_ATOMIC_ORDER = [
@@ -173,8 +182,8 @@ def _build_filter_keys(
 
 
 def resolve_vhub_project(project_key: str, sub_tab: Optional[str] = None) -> Tuple[str, str]:
-    """Ánh xạ project_key (và sub_tab nếu là MAS CAO TẦNG) sang (project_id, project_name) chuẩn."""
-    if project_key == "MAS CAO TẦNG" and sub_tab:
+    """Ánh xạ project_key (và sub_tab nếu có) sang (project_id, project_name) chuẩn."""
+    if sub_tab:
         st = sub_tab.strip().upper()
         if st in VHUB_MAS_SUBTAB_MAP:
             return VHUB_MAS_SUBTAB_MAP[st]

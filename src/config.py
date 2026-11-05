@@ -1,15 +1,15 @@
 """
-Module cấu hình toàn bộ hệ thống đồng bộ 12 dự án bất động sản.
+Module cấu hình toàn bộ hệ thống đồng bộ các dự án bất động sản.
 """
 
-# ID của file Google Trang tính Master tổng hợp (chứa 12 tab dự án và tab "Bàng hàng")
+# ID của file Google Trang tính Master tổng hợp (chứa các tab dự án và tab "Bàng hàng")
 MASTER_SPREADSHEET_ID = '1rd1aDyUO8Vu1mL8q8OSQtJ4AgJ3kBg2j'
 LOW_RISE_TEMPLATE_GID = '904198174'
 
 # Năm mặc định áp dụng cho chính sách bán hàng (CSBH) khi nguồn chỉ điền ngày/tháng
 DEFAULT_POLICY_YEAR = 2026
 
-# Cấu hình danh mục 12 dự án đích cần đồng bộ
+# Cấu hình danh mục các dự án đích cần đồng bộ
 TARGET_PROJECTS = {
     'làng vân': {
         'id': '1G7kWbKI1q8O_r2i5eeNCyAhPjr62EIYRIeXp1n4FZBI',
@@ -61,11 +61,29 @@ TARGET_PROJECTS = {
         'type': 'HIGH_RISE',
         'name': 'Dự án Q9'
     },
-    'MAS CAO TẦNG': {
+    'MGC': {
         'id': '1fV1_ZKQXVzsrdMa8ElSpVu-32cj4vPTzgftN81sDynM',
         'type': 'HIGH_RISE',
-        'name': 'Dự án MAS - Cao tầng',
-        'sub_tabs': ['MGC', 'MEL', 'HSG', 'LEP']
+        'name': 'Masteri Grand Coast',
+        'sub_tab': 'MGC'
+    },
+    'MEL': {
+        'id': '1fV1_ZKQXVzsrdMa8ElSpVu-32cj4vPTzgftN81sDynM',
+        'type': 'HIGH_RISE',
+        'name': 'Masteri Era Landmark',
+        'sub_tab': 'MEL'
+    },
+    'HSG': {
+        'id': '1fV1_ZKQXVzsrdMa8ElSpVu-32cj4vPTzgftN81sDynM',
+        'type': 'HIGH_RISE',
+        'name': 'LUMIÈRE Hanoi Seasons Garden',
+        'sub_tab': 'HSG'
+    },
+    'LEP': {
+        'id': '1fV1_ZKQXVzsrdMa8ElSpVu-32cj4vPTzgftN81sDynM',
+        'type': 'HIGH_RISE',
+        'name': 'LUMIÈRE Essence Peak',
+        'sub_tab': 'LEP'
     },
     'OCP2-3': {
         'id': '1LtzwcF6xP-ZdfuNoschNN3-LhbP1fuHqsiA_ad75jJQ',

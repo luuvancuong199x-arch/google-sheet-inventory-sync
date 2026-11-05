@@ -106,8 +106,10 @@ def parse_master_sheet_rows(
         })
 
     # Xử lý riêng cho dự án MAS CAO TẦNG (Headers: STT, TÊN ĐL, MGC, MEL, HSG, LEP)
-    if project_key == 'MAS CAO TẦNG':
+    p_upper = str(project_key or '').strip().upper()
+    if p_upper in ('MAS CAO TẦNG', 'MGC', 'MEL', 'HSG', 'LEP'):
         sub_tabs = ['MGC', 'MEL', 'HSG', 'LEP']
+        target_sub = sub_tab_filter or (p_upper if p_upper in sub_tabs else None)
         for r in range(1, len(rows)):
             row = rows[r]
             if len(row) < 2:
@@ -117,7 +119,7 @@ def parse_master_sheet_rows(
                 continue
 
             for s_idx, s_name in enumerate(sub_tabs):
-                if sub_tab_filter and s_name.upper() != sub_tab_filter.upper():
+                if target_sub and s_name.upper() != target_sub.upper():
                     continue
                 col_idx = 2 + s_idx
                 if col_idx < len(row):
@@ -240,8 +242,11 @@ def get_project_agency_links(
     """
     Truy vấn trực tiếp Master Sheet qua Google Sheets API v4 hoặc Drive API (.xlsx) và trả về danh sách các link đại lý.
     """
+    p_upper = str(project_key or '').strip().upper()
+    master_tab_key = 'MAS CAO TẦNG' if p_upper in ('MAS CAO TẦNG', 'MGC', 'MEL', 'HSG', 'LEP') else project_key
+    sub_filter = sub_tab or (p_upper if p_upper in ('MGC', 'MEL', 'HSG', 'LEP') else None)
     try:
-        range_name = f"'{project_key}'!A1:Z500"
+        range_name = f"'{master_tab_key}'!A1:Z500"
         resp = sheets_service.spreadsheets().values().get(
             spreadsheetId=MASTER_SPREADSHEET_ID,
             range=range_name,
@@ -249,18 +254,18 @@ def get_project_agency_links(
         ).execute()
 
         rows = resp.get('values', [])
-        return parse_master_sheet_rows(rows, project_key, sub_tab_filter=sub_tab)
+        return parse_master_sheet_rows(rows, master_tab_key, sub_tab_filter=sub_filter)
     except Exception as e:
         # Nếu file là Office file (.xlsx) hoặc có lỗi Sheets API, dùng fallback Drive API + openpyxl
         try:
             wb = _get_master_workbook_openpyxl()
-            if project_key in wb.sheetnames:
-                ws = wb[project_key]
+            if master_tab_key in wb.sheetnames:
+                ws = wb[master_tab_key]
                 rows = [[str(c.value or '') if c.value is not None else '' for c in r] for r in ws.iter_rows()]
-                return parse_master_sheet_rows(rows, project_key, sub_tab_filter=sub_tab)
+                return parse_master_sheet_rows(rows, master_tab_key, sub_tab_filter=sub_filter)
             else:
-                logger.error(f"Không tìm thấy tab '{project_key}' trong Master Sheet (.xlsx)")
+                logger.error(f"Không tìm thấy tab '{master_tab_key}' trong Master Sheet (.xlsx)")
                 return []
         except Exception as ex2:
-            logger.error(f"Lỗi khi đọc tab '{project_key}' từ Master Sheet: {e} | Fallback xlsx: {ex2}")
+            logger.error(f"Lỗi khi đọc tab '{master_tab_key}' từ Master Sheet: {e} | Fallback xlsx: {ex2}")
             return []

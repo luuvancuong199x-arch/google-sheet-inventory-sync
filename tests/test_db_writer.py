@@ -33,6 +33,19 @@ def test_resolve_vhub_project():
         "lumiere-hanoi-seasons-garden",
         "LUMIÈRE Hanoi Seasons Garden",
     )
+    assert resolve_vhub_project("MAS CAO TẦNG", sub_tab="MEL") == (
+        "masteri-era-landmark",
+        "MASTERI ERA LANDMARK",
+    )
+    assert resolve_vhub_project("MAS CAO TẦNG", sub_tab="LEP") == (
+        "lumiere-essence-peak",
+        "LUMIÈRE Essence Peak",
+    )
+    assert resolve_vhub_project("MGC") == ("masteri-grand-coast", "MASTERI GRAND COAST")
+    assert resolve_vhub_project("MEL") == ("masteri-era-landmark", "MASTERI ERA LANDMARK")
+    assert resolve_vhub_project("HSG") == ("lumiere-hanoi-seasons-garden", "LUMIÈRE Hanoi Seasons Garden")
+    assert resolve_vhub_project("LEP") == ("lumiere-essence-peak", "LUMIÈRE Essence Peak")
+    assert resolve_vhub_project("LUMIÈRE Essence Peak") == ("lumiere-essence-peak", "LUMIÈRE Essence Peak")
 
 
 def test_map_low_rise_row_to_db_record():

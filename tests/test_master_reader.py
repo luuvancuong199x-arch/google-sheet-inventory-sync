@@ -52,6 +52,14 @@ def test_parse_master_sheet_rows_mas_cao_tang():
     assert len(links_all) == 2
     assert {l["sub"] for l in links_all} == {"MGC", "MEL"}
 
+    links_mgc_direct = parse_master_sheet_rows(rows, project_key="MGC")
+    assert len(links_mgc_direct) == 1
+    assert links_mgc_direct[0]["sub"] == "MGC"
+
+    links_mel_direct = parse_master_sheet_rows(rows, project_key="MEL")
+    assert len(links_mel_direct) == 1
+    assert links_mel_direct[0]["sub"] == "MEL"
+
 def test_parse_spreadsheet_url_multiple_gids():
     from src.master_reader import parse_spreadsheet_url_and_gids
     # Comma-separated GIDs

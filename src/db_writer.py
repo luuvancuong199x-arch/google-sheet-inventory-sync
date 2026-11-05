@@ -18,7 +18,13 @@ from typing import Any, Dict, List, Optional, Tuple
 import psycopg2
 from psycopg2.extras import execute_values, Json
 
-from src.normalizer import sanitize_unit_code
+from src.normalizer import (
+    sanitize_unit_code,
+    normalize_direction,
+    normalize_low_rise_type,
+    normalize_high_rise_type,
+    sanitize_and_cross_validate_prices
+)
 from src.merger import extract_clean_agency_name
 
 logger = logging.getLogger(__name__)
@@ -335,22 +341,103 @@ def _get_col(row: List[Any], idx: int) -> Any:
     return row[idx] if idx < len(row) else None
 
 
+_subdivision_catalog_cache = {}
+_subdivision_catalog_loaded_at = 0
+
+def load_subdivision_catalog(conn):
+    global _subdivision_catalog_cache, _subdivision_catalog_loaded_at
+    import time
+    now = time.time()
+    if _subdivision_catalog_cache and (now - _subdivision_catalog_loaded_at < 300):
+        return _subdivision_catalog_cache
+
+    catalog = {}
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT tour_id, id, name, code, normalized_key 
+                FROM tour_subdivisions 
+                WHERE status = 'active' OR status IS NULL;
+            """)
+            for tour_id, sub_id, name, code, norm_key in cur.fetchall():
+                if not tour_id: continue
+                entry = {
+                    "id": str(sub_id),
+                    "code": code or "",
+                    "canonical_name": name,
+                    "tour_id": tour_id
+                }
+                for k in [norm_key, _slug_key(name), _slug_key(code or "")]:
+                    if k:
+                        catalog[(tour_id, k)] = entry
+
+            cur.execute("""
+                SELECT a.tour_id, a.subdivision_id, a.normalized_alias, s.name, s.code
+                FROM tour_subdivision_aliases a
+                JOIN tour_subdivisions s ON a.subdivision_id = s.id
+                WHERE a.status = 'confirmed';
+            """)
+            for tour_id, sub_id, norm_alias, name, code in cur.fetchall():
+                if not tour_id or not norm_alias: continue
+                entry = {
+                    "id": str(sub_id),
+                    "code": code or "",
+                    "canonical_name": name,
+                    "tour_id": tour_id
+                }
+                catalog[(tour_id, _slug_key(norm_alias))] = entry
+
+        # High-volume manual shortcuts
+        COMMON_ABBREVS = {
+            ("vinhomes-ocean-park-3", "kdas"): "kinh-do-anh-sang",
+            ("vinhomes-ocean-park-3", "kinh-do"): "kinh-do-anh-sang",
+            ("vinhomes-ocean-park-3", "vtd"): "vinh-thien-duong",
+            ("vinhomes-ocean-park-3", "vx"): "vinh-xanh",
+            ("vinhomes-ocean-park-3", "td"): "thoi-dai",
+            ("vinhomes-ocean-park-3", "sh"): "san-ho",
+            ("vinhomes-ocean-park-3", "ha"): "hai-au",
+            ("vinhomes-ocean-park-3", "sb"): "sao-bien",
+            ("vinhomes-ocean-park-3", "cl"): "cha-la",
+            ("vinhomes-ocean-park-3", "dd"): "dao-dua",
+            ("vinhomes-ocean-park-3", "pb"): "pho-bien",
+            ("vinhomes-global-gate-ha-long", "tdnd-1-1"): "thien-duong-nhiet-doi-1",
+            ("vinhomes-global-gate-ha-long", "tdnd-1-2"): "thien-duong-nhiet-doi-1",
+            ("vinhomes-global-gate-ha-long", "thien-duong-nhiet-doi-1-2"): "thien-duong-nhiet-doi-1",
+            ("vinhomes-global-gate-ha-long", "mat-troi"): "mat-troi",
+            ("happy-home-trang-cat", "thinh-vuong"): "trang-cat",
+        }
+        for (proj, abbr), target_slug in COMMON_ABBREVS.items():
+            target_entry = catalog.get((proj, target_slug))
+            if target_entry:
+                catalog[(proj, abbr)] = target_entry
+
+        _subdivision_catalog_cache = catalog
+        _subdivision_catalog_loaded_at = now
+    except Exception as e:
+        logger.warning(f"Không thể nạp danh mục phân khu tour_subdivisions: {e}")
+
+    return catalog
+
 def map_merged_row_to_db_record(
     row: List[Any],
     project_key: str,
     is_low_rise: bool,
     sub_tab: Optional[str] = None,
+    subdivision_catalog: Optional[Dict[Tuple[str, str], Dict[str, Any]]] = None,
 ) -> Optional[Dict[str, Any]]:
     """
     Chuyển đổi 1 dòng đã chuẩn hóa (39 cột Thấp tầng hoặc 32 cột Cao tầng)
     sang dictionary khớp với cấu trúc bảng 'products' trong PostgreSQL.
     """
     unit_col_idx = 2 if is_low_rise else 1
-    raw_code = _clean_str(_get_col(row, unit_col_idx), 128)
-    if not raw_code:
+    raw_code_raw = _clean_str(_get_col(row, unit_col_idx), 128)
+    if not raw_code_raw:
+        return None
+    raw_code = sanitize_unit_code(raw_code_raw).upper()
+    if not raw_code or len(raw_code) < 2:
         return None
     if re.match(r"^\d{1,4}[/.-]\d{1,2}[/.-]\d{1,4}$", raw_code) or not (
-        re.search(r"[A-Za-z]", raw_code) and re.search(r"\d", raw_code)
+        re.search(r"[A-Za-zÀ-ỹ]", raw_code) and re.search(r"\d", raw_code)
     ):
         return None
 
@@ -360,7 +447,7 @@ def map_merged_row_to_db_record(
     if is_low_rise:
         subdivision_name = _clean_str(_get_col(row, 1), 255)
         delivery_standards = _clean_str(_get_col(row, 3))
-        apartment_type_name = _clean_str(_get_col(row, 4), 255)
+        apartment_type_name = normalize_low_rise_type(_clean_str(_get_col(row, 4), 255), delivery_standards)
         land_area = _parse_decimal(_get_col(row, 5), is_price=False)
         construction_area = _parse_decimal(_get_col(row, 6), is_price=False)
         price_before_vat = _parse_decimal(_get_col(row, 7), is_price=True)
@@ -379,7 +466,7 @@ def map_merged_row_to_db_record(
         loan_price = _parse_decimal(_get_col(row, 20), is_price=True)
         progress_payment_price = _parse_decimal(_get_col(row, 21), is_price=True)
         early_payment_price = _parse_decimal(_get_col(row, 22), is_price=True)
-        base_direction_name = _clean_str(_get_col(row, 23), 255)
+        base_direction_name = normalize_direction(_clean_str(_get_col(row, 23), 255)) or None
         front_width = _parse_decimal(_get_col(row, 24), is_price=False)
         floor_count = _clean_str(_get_col(row, 25), 32)
         gift = _clean_str(_get_col(row, 26))
@@ -409,8 +496,8 @@ def map_merged_row_to_db_record(
         product_type = "thap_tang"
     else:
         subdivision_name = _clean_str(_get_col(row, 2), 255)
-        apartment_type_name = _clean_str(_get_col(row, 3), 255)
-        base_direction_name = _clean_str(_get_col(row, 4), 255)
+        apartment_type_name = normalize_high_rise_type(_clean_str(_get_col(row, 3), 255))
+        base_direction_name = normalize_direction(_clean_str(_get_col(row, 4), 255)) or None
         building_name = _clean_str(_get_col(row, 5), 255)
         building_code = building_name
         number_of_floor = _clean_str(_get_col(row, 6), 32)
@@ -456,6 +543,37 @@ def map_merged_row_to_db_record(
         floor_count = None
         product_type = "cao_tang"
 
+    # Architectural integrity: carpet_area (thông thủy) <= built_up_area (tim tường)
+    if carpet_area and built_up_area and carpet_area > built_up_area:
+        carpet_area, built_up_area = built_up_area, carpet_area
+
+    # Pricing cross-validation (bảo tồn giá tổng theo chỉ đạo người dùng)
+    total_price, price_before_vat, don_gia_m2 = sanitize_and_cross_validate_prices(
+        total_price=total_price,
+        price_before_vat=price_before_vat,
+        don_gia_m2=price_per_meter
+    )
+    if don_gia_m2:
+        price_per_meter = don_gia_m2
+
+    # Canonical subdivision resolution
+    subdivision_id = None
+    subdivision_code = None
+    subdivision_resolution_status = None
+    subdivision_resolution_version = 1
+    if subdivision_catalog and subdivision_name:
+        sub_key = _slug_key(subdivision_name)
+        cat_entry = subdivision_catalog.get((project_id, sub_key))
+        if cat_entry:
+            subdivision_id = cat_entry["id"]
+            subdivision_code = cat_entry["code"]
+            subdivision_name = cat_entry["canonical_name"]
+            subdivision_resolution_status = "resolved"
+        else:
+            subdivision_resolution_status = "unmatched"
+    elif subdivision_name:
+        subdivision_resolution_status = "unmatched"
+
     filter_keys = _build_filter_keys(
         apartment_type_name=apartment_type_name,
         base_direction_name=base_direction_name,
@@ -488,6 +606,10 @@ def map_merged_row_to_db_record(
         "product_type": product_type,
         "product_name": None,
         "subdivision_name": subdivision_name,
+        "subdivision_id": subdivision_id,
+        "subdivision_code": subdivision_code,
+        "subdivision_resolution_status": subdivision_resolution_status,
+        "subdivision_resolution_version": subdivision_resolution_version,
         "building_code": building_code,
         "building_name": building_name,
         "apartment_type_name": apartment_type_name,
@@ -684,6 +806,10 @@ DB_COLUMNS = [
     "notes_real_estate",
     "policy_date",
     "policy_code",
+    "subdivision_id",
+    "subdivision_code",
+    "subdivision_resolution_status",
+    "subdivision_resolution_version",
     "state_line",
     "state_line_name",
     "fund_groups_sell_name",
@@ -712,6 +838,10 @@ ON CONFLICT (product_code, project_id) DO UPDATE SET
     project_name = EXCLUDED.project_name,
     product_type = EXCLUDED.product_type,
     subdivision_name = EXCLUDED.subdivision_name,
+    subdivision_id = COALESCE(EXCLUDED.subdivision_id, products.subdivision_id),
+    subdivision_code = COALESCE(EXCLUDED.subdivision_code, products.subdivision_code),
+    subdivision_resolution_status = COALESCE(EXCLUDED.subdivision_resolution_status, products.subdivision_resolution_status),
+    subdivision_resolution_version = COALESCE(EXCLUDED.subdivision_resolution_version, products.subdivision_resolution_version),
     building_code = EXCLUDED.building_code,
     building_name = EXCLUDED.building_name,
     apartment_type_name = EXCLUDED.apartment_type_name,
@@ -790,14 +920,20 @@ def bulk_upsert_products_to_db(
     theo từng lô (chunking), xóa cache facet và phát tín hiệu NOTIFY.
     """
     project_id, project_name = resolve_vhub_project(project_key, sub_tab=sub_tab)
-    dedup_records: Dict[str, Dict[str, Any]] = {}
+    conn = get_db_connection()
+    try:
+        catalog = load_subdivision_catalog(conn)
+    except Exception:
+        catalog = {}
 
+    dedup_records: Dict[str, Dict[str, Any]] = {}
     for r in rows:
         rec = map_merged_row_to_db_record(
             row=r,
             project_key=project_key,
             is_low_rise=is_low_rise,
             sub_tab=sub_tab,
+            subdivision_catalog=catalog,
         )
         if not rec:
             continue
@@ -810,7 +946,6 @@ def bulk_upsert_products_to_db(
 
     json_cols = {"product_images", "pricing_sheet_images", "computed_prices", "metadata"}
 
-    conn = get_db_connection()
     try:
         with conn.cursor() as cur:
             for i in range(0, len(records), chunk_size):

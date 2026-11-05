@@ -29,7 +29,8 @@ from src.normalizer import (
     infer_grounded_zone,
     infer_grounded_low_rise_type,
     compute_expiry_warning,
-    normalize_direction
+    normalize_direction,
+    sanitize_and_cross_validate_prices
 )
 
 logger = logging.getLogger(__name__)
@@ -171,7 +172,7 @@ def map_columns_from_headers(header_cells: List[str]) -> Dict[str, int]:
     col_map["wc"] = find_col([r'(số wc|wc)'])
     col_map["frontage"] = find_col([r'(mặt tiền|mat tien|rộng mặt tiền)'])
     col_map["floors"] = find_col([r'(số tầng|so tang|tầng cao)'])
-    col_map["gia_chua_vat"] = find_col([r'(chưa gồm vat|chưa vat|trước vat|giá gốc chưa vat)'])
+    col_map["gia_chua_vat"] = find_col([r'^(?!.*(đơn\s*giá|don\s*gia|/m2|/m²)).*(chưa gồm vat|chưa vat|trước vat|giá gốc chưa vat)'])
     col_map["vat_tong"] = find_col([
         r'^vat(\s*\(tổng\))?$',
         r'^tiền vat$',
@@ -182,7 +183,7 @@ def map_columns_from_headers(header_cells: List[str]) -> Dict[str, int]:
         r'^(?!.*(giá|tổng cộng|chưa gồm|gồm vat)).*(kpbt|kinh phí bảo trì)'
     ])
     col_map["gia_full"] = find_col([
-        r'^(?!.*(chưa|chua|trước|truoc)).*(gồm\s*vat|gom\s*vat|giá\s*full|tổng\s*giá|giá\s*niêm\s*yết|giá\s*bán\s*gồm)',
+        r'^(?!.*(chưa|chua|trước|truoc|đơn\s*giá|don\s*gia|/m2|/m²)).*(gồm\s*vat|gom\s*vat|giá\s*full|tổng\s*giá|giá\s*niêm\s*yết|giá\s*bán\s*gồm)',
         r'^(giá\s*bán|giá|tổng\s*giá)$'
     ])
     col_map["gia_vay"] = find_col([r'(giá vay|vay nh|htls|vay 70)'])
@@ -470,6 +471,10 @@ def parse_agency_grid_data(
             if gia_full and gia_chua_vat and gia_full == gia_chua_vat and vat_tong:
                 gia_full = gia_chua_vat + vat_tong + (kpbt or 0)
 
+            gia_chua_vat, gia_full, don_gia_m2 = sanitize_and_cross_validate_prices(
+                gia_chua_vat, gia_full, don_gia_m2
+            )
+
             frontage = normalize_numeric_or_null(get_val(row, cm['frontage']))
             floors = normalize_numeric_or_null(get_val(row, cm['floors']), is_integer=True)
 
@@ -513,9 +518,16 @@ def parse_agency_grid_data(
             clean_agency = agency_name.strip()
             agency_cell_val = f'=HYPERLINK("{agency_url}"; "{clean_agency}")' if agency_url else clean_agency
 
+            if net_area and gross_area and net_area > gross_area:
+                net_area, gross_area = gross_area, net_area
+
             # Đối soát giá cao tầng: nếu giá full trùng giá chưa VAT nhưng có KPBT
             if gia_full and gia_chua_vat and gia_full == gia_chua_vat and kpbt:
                 gia_full = gia_chua_vat + kpbt
+
+            gia_chua_vat, gia_full, don_gia_m2 = sanitize_and_cross_validate_prices(
+                gia_chua_vat, gia_full, don_gia_m2
+            )
 
             # Khớp chính xác 32 cột chuẩn Cao tầng (thêm cột 32 Hạn cấp hàng)
             row_values = [
@@ -624,6 +636,8 @@ def fetch_agency_from_drive_xlsx(
     is_general_pool: bool = False
 ) -> List[Dict[str, Any]]:
     """Tải và phân tích bảng hàng đại lý dạng file Excel (.xlsx) lưu trên Google Drive."""
+    fh = None
+    wb = None
     try:
         import openpyxl
         from googleapiclient.http import MediaIoBaseDownload
@@ -745,6 +759,19 @@ def fetch_agency_from_drive_xlsx(
             )
         logger.warning(f"Lỗi khi đọc bảng hàng Excel .xlsx {agency_name} ({file_id}): {e}")
         return []
+    finally:
+        if wb is not None:
+            try:
+                wb.close()
+            except Exception:
+                pass
+            del wb
+        if fh is not None:
+            try:
+                fh.close()
+            except Exception:
+                pass
+            del fh
 
 def fetch_agency_from_google_sheet(
     sheets_service: Any,

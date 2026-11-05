@@ -36,6 +36,17 @@ COMMERCIAL_CODE_MAP = {
     '18': '18'
 }
 
+JUNK_CODE_REGEX = re.compile(
+    r'(CỌC|COC|TIỀN\s*THUÊ|TIEN\s*THUE|CAM\s*KẾT|CAM\s*KET|'
+    r'THÔ\s*KHÔNG|THÔ\s*CÓ|GIÃN\s*XÂY|HOÀN\s*THIỆN|BẢNG\s*HÀNG|BANG\s*HANG|'
+    r'QUỸ\s*THÔ|QUY\s*THO|QUỸ\s*HOÀN|QUY\s*HOAN|SỐ\s*TIỀN|SO\s*TIEN|'
+    r'VNĐ|VND|TRIỆU|TRIEU|DỰ\s*ÁN|DU\s*AN|PHÂN\s*KHU|PHAN\s*KHU|'
+    r'THIÊN\s*ĐƯỜNG|THIEN\s*DUONG|THIÊNĐƯỜNG|THIENDUONG|'
+    r'VỊNH\s*BÌNH\s*MINH|VINH\s*BINH\s*MINH|VỊNHBÌNHMINH|VINHBINHMINH|'
+    r'THÔNG\s*BÁO|THONG\s*BAO|XÂY\s*SAU|XAY\s*SAU)',
+    re.IGNORECASE
+)
+
 def to_commercial_code(raw_token: Any) -> str:
     """
     Quy tắc chuẩn hóa hệ mã thương mại cho cả Tầng và Trục/Căn số:
@@ -69,26 +80,48 @@ def to_axis_code(raw_token: Any) -> str:
     return to_commercial_code(raw_token)
 
 def sanitize_unit_code(raw_code: Any) -> str:
-    """Làm sạch mã căn, loại bỏ emoji, ký tự trang trí, ghi chú trong ngoặc."""
+    """Làm sạch mã căn, loại bỏ emoji, ký tự trang trí, ghi chú trong ngoặc, chặn dòng quảng cáo/thông báo."""
     if not raw_code:
         return ''
     s = str(raw_code).strip().upper()
+    # Loại bỏ bullet/ký tự gạch đầu dòng
+    s = re.sub(r'^[•\-\*­\s]+', '', s)
     # Loại bỏ emoji và sao
     s = re.sub(r'[✨🔥💥💎⭐🌟⚡📌📍🎯🏷️✅❌⚠️\*]+', '', s)
+    # Cắt bỏ phần mở ngoặc đơn (Góc, Xẻ khe, cam kết...)
+    s = s.split('(')[0].split(',')[0].split('\n')[0].split(';')[0].strip()
     # Loại bỏ tiền tố mã căn: hoặc cắt phần trước dấu hai chấm nếu dấu hai chấm chứa chữ ghi chú
     if ':' in s:
         parts = s.split(':', 1)
-        if any(kw in parts[0] for kw in ['MÃ', 'CĂN', 'BT', 'LK', 'SH', 'CH']):
-            s = parts[0].strip() if len(parts[0].strip()) >= 3 else parts[1].strip()
+        left, right = parts[0].strip(), parts[1].strip()
+        if re.search(r'\d', left) and re.search(r'[A-ZÀ-Ỹ]', left):
+            s = left
+        elif re.search(r'\d', right):
+            s = right
         else:
-            s = parts[0].strip()
-    # Cắt bỏ phần mở ngoặc đơn (Góc, Xẻ khe...)
-    s = s.split('(')[0].strip()
-    # Cắt bỏ từ khóa đuôi góc/xẻ khe
+            s = left
+    # Nếu có dấu cách: kiểm tra từ đầu tiên có phải mã căn chuẩn không (VD: AS4-49 Căn góc 3 mặt tiền -> AS4-49)
+    tokens = s.split()
+    if tokens:
+        first = tokens[0].strip('.,-')
+        if re.match(r'^[A-ZÀ-Ỹ0-9]{1,10}[-_.][A-ZÀ-Ỹ0-9]{1,10}$', first):
+            s = first
+        else:
+            s = ''.join(tokens)
+    # Cắt bỏ từ khóa đuôi góc/xẻ khe/thường
     s = re.sub(r'\s+(GÓC|GOC|XẺ KHE|XE KHE|THƯỜNG|THUONG)$', '', s, flags=re.IGNORECASE).strip()
     # Xóa khoảng trắng thừa và ký tự nối đầu/cuối
     s = re.sub(r'\s+', '', s)
     s = re.sub(r'^[-._]+|[-._]+$', '', s)
+    # Chặn triệt để dòng thông báo, chính sách, banner
+    if JUNK_CODE_REGEX.search(s):
+        return ''
+    if len(s) < 2 or len(s) > 25:
+        return ''
+    if not re.search(r'\d', s) or not re.search(r'[A-ZÀ-Ỹ]', s):
+        return ''
+    if re.match(r'^\d{1,4}[/.-]\d{1,2}[/.-]\d{1,4}$', s):
+        return ''
     return s
 
 def normalize_high_rise_unit_floor_axis(
@@ -345,13 +378,15 @@ DIRECTION_MAP = {
     'TÂY - NAM': 'TN', 'TÂY-NAM': 'TN', 'TÂY/NAM': 'TN',
     'CHÍNH ĐÔNG': 'Đông', 'CHÍNH TÂY': 'Tây', 'CHÍNH NAM': 'Nam', 'CHÍNH BẮC': 'Bắc',
     'ĐB-ĐN': 'ĐB-ĐN', 'ĐB/ĐN': 'ĐB-ĐN', 'TN-TB': 'TN-TB', 'TN/TB': 'TN-TB',
-    'ĐN-TN': 'ĐN-TN', 'ĐN/TN': 'ĐN-TN', 'ĐB-TB': 'ĐB-TB', 'ĐB/TB': 'ĐB-TB'
+    'ĐN-TN': 'ĐN-TN', 'ĐN/TN': 'ĐN-TN', 'ĐB-TB': 'ĐB-TB', 'ĐB/TB': 'ĐB-TB',
+    'TB-ĐB': 'TB-ĐB', 'TB/ĐB': 'TB-ĐB', 'TB-TN': 'TB-TN', 'TB/TN': 'TB-TN',
+    'ĐB-TN': 'ĐB-TN', 'ĐB/TN': 'ĐB-TN', 'TN-ĐB': 'TN-ĐB', 'TN/ĐB': 'TN-ĐB'
 }
 
 def normalize_direction(raw_direction: Any) -> str:
     """
     Chuẩn hóa hướng nhà / hướng cửa / hướng ban công.
-    Loại bỏ triệt để các giá trị số hoặc text rác (VD: 11.833, 9.920, 32.004).
+    Loại bỏ triệt để các giá trị số hoặc text rác (VD: 6.388.998.545, 11.833, 24.773, 0).
     Chỉ chấp nhận các hướng địa lý hợp lệ.
     """
     if raw_direction is None:
@@ -360,8 +395,8 @@ def normalize_direction(raw_direction: Any) -> str:
     if not s or re.match(r'^(0|-|n/a|none|null)$', s, re.IGNORECASE):
         return ''
 
-    # Nếu chứa toàn số và dấu chấm/phẩy -> đây là giá tiền/diện tích bị trôi cột, loại bỏ ngay
-    if re.match(r'^\d+([.,]\d+)?$', s):
+    # Nếu chứa số -> đây là giá tiền/diện tích bị trôi cột hoặc số tầng, loại bỏ ngay
+    if re.search(r'\d', s):
         return ''
 
     cleaned = re.sub(r'^(HƯỚNG|HUONG|CỬA|BAN CÔNG|BC)\s*', '', s, flags=re.IGNORECASE).strip().upper()
@@ -485,47 +520,89 @@ def normalize_low_rise_type(raw_val: Any, raw_tcbg: Any = '') -> str:
     """Chuẩn hóa loại hình thấp tầng: LK, SH, BTSL, BTĐL, BTTL, TMDV."""
     s = str(raw_val or '').strip().upper()
     tcbg = str(raw_tcbg or '').strip().upper()
-    if (s in ['LIỀN KỀ', 'LK']) and 'SONG LẬP' in tcbg:
-        return 'BTSL'
     if not s:
         return ''
-    if 'SONG LẬP' in s and 'SHOP' in s:
+    if ('SONG LẬP' in tcbg or 'SONG LAP' in tcbg) and any(kw in s for kw in ['LIỀN KỀ', 'LIEN KE', 'LIÊN KẾ', 'LK']):
         return 'BTSL'
-    if 'LIỀN KỀ' in s and 'SHOP' in s:
-        return 'SH'
-    if 'ĐƠN LẬP' in s or s in ['ĐL', 'DL', 'BTĐL', 'BTDL']:
+    if any(kw in s for kw in ['SONG LẬP', 'SONG LAP', 'BTSL', 'SL']):
+        return 'BTSL'
+    if any(kw in s for kw in ['ĐƠN LẬP', 'DON LAP', 'BTĐL', 'BTDL', 'ĐL', 'DL']):
         return 'BTĐL'
-    if 'SONG LẬP' in s or s in ['SL', 'BTSL']:
-        return 'BTSL'
-    if 'TỨ LẬP' in s or s in ['TL', 'BTTL']:
+    if any(kw in s for kw in ['TỨ LẬP', 'TU LAP', 'BTTL', 'TL']):
         return 'BTTL'
-    if 'SHOPHOUSE' in s or s in ['SH', 'SHOP'] or 'NHÀ PHỐ' in s:
+    if any(kw in s for kw in ['SHOPHOUSE', 'NHÀ PHỐ', 'NHA PHO', 'SH', 'SHOP']):
         return 'SH'
-    if 'TMDV' in s or 'THƯƠNG MẠI' in s:
+    if any(kw in s for kw in ['TMDV', 'THƯƠNG MẠI', 'THUONG MAI']):
         return 'TMDV'
-    if 'LIỀN KỀ' in s or s == 'LK':
+    if any(kw in s for kw in ['LIỀN KỀ', 'LIEN KE', 'LIÊN KẾ', 'LK']):
         return 'LK'
+    if any(kw in s for kw in ['BIỆT THỰ', 'BIET THU', 'BT']):
+        return 'BT'
     return s
 
 def normalize_high_rise_type(raw_val: Any) -> str:
-    """Chuẩn hóa loại hình cao tầng: STUDIO, 1PN+, 2PN+, PENTHOUSE, DUPLEX..."""
-    s = str(raw_val or '').strip().upper().replace(' ', '')
-    s = s.replace('BR', 'PN')
-    if not s:
+    """Chuẩn hóa loại hình cao tầng: STUDIO, 1PN, 1PN+, 2PN, 2PN+, 3PN, 3PN+, 4PN, DUPLEX, PENTHOUSE..."""
+    s = str(raw_val or '').strip().upper()
+    s = re.sub(r'\s+', ' ', s)
+    if not s or s in ['NONE', 'NULL', 'N/A']:
         return ''
-    if 'STUDIO' in s or s == 'STU':
+    if any(kw in s for kw in ['STUDIO', 'STU']):
         return 'STUDIO'
-    if 'PENTHOUSE' in s or s == 'PEN':
+    if any(kw in s for kw in ['PENTHOUSE', 'PEN']):
         return 'PENTHOUSE'
-    if 'DUPLEX' in s or s == 'DUP':
+    if any(kw in s for kw in ['DUPLEX', 'DUP']):
         return 'DUPLEX'
-    if re.match(r'^1PN\+1', s):
-        return '1PN+'
-    if re.match(r'^2PN\+1', s):
-        return '2PN+'
-    if re.match(r'^3PN\+1', s):
-        return '3PN+'
+    if any(kw in s for kw in ['TRIPLEX', 'TRI']):
+        return 'TRIPLEX'
+    m_plus = re.search(r'([1-4])\s*(?:PN|BR|PHÒNG\s*NGỦ|PHONG\s*NGU|P)\s*(?:\+|\+\s*1|\bCỘNG\b)', s)
+    if m_plus:
+        return f"{m_plus.group(1)}PN+"
+    m_std = re.search(r'([1-4])\s*(?:PN|BR|PHÒNG\s*NGỦ|PHONG\s*NGU|P)\b', s)
+    if m_std:
+        return f"{m_std.group(1)}PN"
+    s_clean = s.replace(' ', '').replace('BR', 'PN')
+    if re.match(r'^[1-4]PN\+?$', s_clean):
+        return s_clean
     return s
+
+def sanitize_and_cross_validate_prices(
+    total_price: Any,
+    price_before_vat: Any,
+    don_gia_m2: Any = None
+) -> Tuple[Any, Any, Any]:
+    """
+    Quy tắc kiểm định giá chuẩn xác:
+    1. Loại bỏ giá rác bất thường < 100 triệu VNĐ đối với BĐS (trả về None).
+    2. BẢO TỒN 100% Giá tổng (total_price): Nếu nguồn không có VAT hoặc không có giá trước VAT,
+       bắt buộc giữ nguyên giá tổng gốc (theo chỉ đạo người dùng).
+    3. Nhận diện trôi cột (Column Drift): Khi price_before_vat > 1 tỷ nhưng total_price < 500 triệu
+       (do bị gán nhầm đơn giá/m2 hoặc tiền cọc vào cột tổng giá):
+       Gán lại don_gia_m2 = don_gia_m2 or total_price và đặt total_price = None.
+    """
+    tot = total_price
+    prev = price_before_vat
+    dg = don_gia_m2
+
+    if tot is not None and tot != '':
+        try:
+            tot_num = float(tot)
+            if 0 < tot_num < 100_000_000:
+                tot = None
+        except (ValueError, TypeError):
+            pass
+
+    if prev is not None and tot is not None and prev != '' and tot != '':
+        try:
+            prev_num = float(prev)
+            tot_num = float(tot)
+            if prev_num > 1_000_000_000 and tot_num < 500_000_000 and prev_num > tot_num:
+                if dg is None or dg == '':
+                    dg = tot
+                tot = None
+        except (ValueError, TypeError):
+            pass
+
+    return tot, prev, dg
 
 # Bảng ánh xạ phân khu dựa trên dữ liệu thực tế có sẵn từ các nguồn chính thống của từng dự án
 GROUNDED_ZONE_MAP = {

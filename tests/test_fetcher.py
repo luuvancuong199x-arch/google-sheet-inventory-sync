@@ -283,5 +283,36 @@ def test_vhub_agency_sets_fund_group_quy_doc_quyen():
     assert parsed[0]["is_exclusive"] is True
     assert parsed[0]["row_values"][32] == "Quỹ độc quyền"
 
+def test_expanded_header_mappings():
+    from src.fetcher import map_columns_from_headers
+    headers = ["STT", "Mã sản phẩm", "Loại CH", "DTTT", "Giá TTTĐ (Tạm tính)"]
+    col_map = map_columns_from_headers(headers)
+    assert col_map["unit_code"] == 1
+    assert col_map["unit_type"] == 2
+    assert col_map["net_area"] == 3
+    assert col_map["gia_tttd"] == 4
+
+def test_heuristic_recovery_when_headers_unmapped():
+    # Trường hợp tiêu đề bị gộp ô, khuyết tên cột diện tích và giá
+    headers = ["STT", "Mã căn", "", "", ""]
+    grid_rows = [
+        [{"formattedValue": h} for h in headers],
+        [{"formattedValue": "1"}, {"formattedValue": "P1.1001"}, {"formattedValue": "47.5"}, {"formattedValue": "3.500.000.000"}, {"formattedValue": ""}],
+    ]
+    parsed = parse_agency_grid_data(
+        grid_rows,
+        agency_name="AURA",
+        project_key="MIK OCP",
+        is_low_rise=False,
+        existing_pool_keys=set(),
+        today_str="05/11/2026",
+        sheet_title="Sheet 1"
+    )
+    assert len(parsed) == 1
+    assert parsed[0]["unit_key"] == "P1.1001"
+    assert parsed[0]["row_values"][8] == 47.5
+    assert parsed[0]["row_values"][14] == 3500000000
+    assert parsed[0]["status"] == "Còn hàng"
+
 
 

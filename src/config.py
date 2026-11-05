@@ -79,12 +79,6 @@ TARGET_PROJECTS = {
         'name': 'LUMIÈRE Hanoi Seasons Garden',
         'sub_tab': 'HSG'
     },
-    'LEP': {
-        'id': '1fV1_ZKQXVzsrdMa8ElSpVu-32cj4vPTzgftN81sDynM',
-        'type': 'HIGH_RISE',
-        'name': 'LUMIÈRE Essence Peak',
-        'sub_tab': 'LEP'
-    },
     'OCP2-3': {
         'id': '1LtzwcF6xP-ZdfuNoschNN3-LhbP1fuHqsiA_ad75jJQ',
         'type': 'LOW_RISE',

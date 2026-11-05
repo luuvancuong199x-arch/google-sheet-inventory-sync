@@ -64,9 +64,9 @@ def sync_single_project(
     force_sheet_write: bool = False
 ) -> dict:
     """Đồng bộ một dự án cụ thể (Đích Kép: Google Sheets + PostgreSQL)."""
-    # Nếu gọi MAS CAO TẦNG tổng hợp, tự động điều phối đồng bộ cả 4 dự án thành viên
+    # Nếu gọi MAS CAO TẦNG tổng hợp, tự động điều phối đồng bộ các dự án thành viên (MGC, MEL, HSG)
     if project_key.strip().upper() == 'MAS CAO TẦNG':
-        mas_keys = ['MGC', 'MEL', 'HSG', 'LEP']
+        mas_keys = ['MGC', 'MEL', 'HSG']
         total_units = 0
         total_db = 0
         total_dur = 0.0
@@ -80,7 +80,7 @@ def sync_single_project(
             total_db += res.get("db_upserted", 0)
             total_dur += res.get("duration", 0.0)
         return {
-            "project": "Dự án MAS - Cao tầng (MGC, MEL, HSG, LEP)",
+            "project": "Dự án MAS - Cao tầng (MGC, MEL, HSG)",
             "units": total_units,
             "db_upserted": total_db,
             "db_write_duration": 0.0,

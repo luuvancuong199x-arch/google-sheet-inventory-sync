@@ -156,73 +156,76 @@ def map_columns_from_headers(header_cells: List[str]) -> Dict[str, int]:
         return -1
 
     col_map["stt"] = find_col([r'^stt$'])
-    col_map["unit_code"] = find_col([r'^(mã căn|ma can|mã sp|ký hiệu căn|căn số)$', r'(mã căn|ma can|ký hiệu)'])
-    col_map["zone"] = find_col([r'(phân khu|phan khu|khu|tiểu khu|đường|duong)'])
-    col_map["unit_type"] = find_col([r'(loại hình|loai hinh|loại căn|loai can)'])
-    col_map["tcbg"] = find_col([r'(tcbg|tiêu chuẩn bàn giao|bàn giao)'])
-    col_map["direction"] = find_col([r'^(hướng|huong|hướng cửa|hướng ban công)$', r'(hướng|huong)'])
-    col_map["tower"] = find_col([r'^(tòa|tên tòa|toa|block)$', r'(tên tòa|tòa)'])
-    col_map["floor"] = find_col([r'^(tầng|tang)$', r'(tầng|tang)'])
-    col_map["axis"] = find_col([r'(trục|mã trục)'])
-    col_map["land_area"] = find_col([r'(dt đất|diện tích đất|dt dat|diện tích lô đất|dtđ)', r'^(diện tích|dt)$'])
-    col_map["build_area"] = find_col([r'(dtxd|dt xây dựng|diện tích xây dựng|dt sàn)'])
-    col_map["net_area"] = find_col([r'(thông thủy|thong thuy|dt thông thủy)', r'^(diện tích|dt)$'])
-    col_map["gross_area"] = find_col([r'(tim tường|tim tuong|dt tim tường)'])
-    col_map["bedrooms"] = find_col([r'(số pn|phòng ngủ|so phong ngu)'])
-    col_map["wc"] = find_col([r'(số wc|wc)'])
-    col_map["frontage"] = find_col([r'(mặt tiền|mat tien|rộng mặt tiền)'])
-    col_map["floors"] = find_col([r'(số tầng|so tang|tầng cao)'])
-    col_map["gia_chua_vat"] = find_col([r'^(?!.*(đơn\s*giá|don\s*gia|/m2|/m²)).*(chưa gồm vat|chưa vat|trước vat|giá gốc chưa vat)'])
+    col_map["unit_code"] = find_col([
+        r'^(mã\s*căn|ma\s*can|mã\s*sp|mã\s*sản\s*phẩm|ma\s*san\s*pham|ký\s*hiệu\s*căn|căn\s*số|mã\s*căn\s*mới|mã\s*lô)$',
+        r'(mã\s*căn|ma\s*can|ký\s*hiệu|mã\s*sản\s*phẩm|ma\s*san\s*pham|mã\s*sp|căn\s*hộ)'
+    ])
+    col_map["zone"] = find_col([r'(phân\s*khu|phan\s*khu|khu|tiểu\s*khu|đường|duong)'])
+    col_map["unit_type"] = find_col([r'(loại\s*hình|loai\s*hinh|loại\s*căn|loai\s*can|loại\s*ch|loại\s*căn\s*hộ|loai\s*can\s*ho)'])
+    col_map["tcbg"] = find_col([r'(tcbg|tiêu\s*chuẩn\s*bàn\s*giao|bàn\s*giao)'])
+    col_map["direction"] = find_col([r'^(hướng|huong|hướng\s*cửa|hướng\s*ban\s*công|hướng\s*bc)$', r'(hướng|huong)'])
+    col_map["tower"] = find_col([r'^(tòa|tên\s*tòa|toa|block|mã\s*tòa)$', r'(tên\s*tòa|tòa|toa)'])
+    col_map["floor"] = find_col([r'^(tầng|tang|khoảng\s*tầng)$', r'(tầng|tang)'])
+    col_map["axis"] = find_col([r'(trục|mã\s*trục)'])
+    col_map["land_area"] = find_col([r'(dt\s*đất|diện\s*tích\s*đất|dt\s*dat|diện\s*tích\s*lô\s*đất|dtđ)', r'^(diện\s*tích|dt)$'])
+    col_map["build_area"] = find_col([r'(dtxd|dt\s*xây\s*dựng|diện\s*tích\s*xây\s*dựng|dt\s*sàn|tổng\s*dtxd)'])
+    col_map["net_area"] = find_col([r'(thông\s*thủy|thong\s*thuy|dt\s*thông\s*thủy|dttt|dt\s*tt)', r'^(diện\s*tích|dt)$'])
+    col_map["gross_area"] = find_col([r'(tim\s*tường|tim\s*tuong|dt\s*tim\s*tường)'])
+    col_map["bedrooms"] = find_col([r'(số\s*pn|phòng\s*ngủ|so\s*phong\s*ngu)'])
+    col_map["wc"] = find_col([r'(số\s*wc|wc)'])
+    col_map["frontage"] = find_col([r'(mặt\s*tiền|mat\s*tien|rộng\s*mặt\s*tiền)'])
+    col_map["floors"] = find_col([r'(số\s*tầng|so\s*tang|tầng\s*cao)'])
+    col_map["gia_chua_vat"] = find_col([r'^(?!.*(đơn\s*giá|don\s*gia|/m2|/m²)).*(chưa\s*gồm\s*vat|chưa\s*vat|trước\s*vat|giá\s*gốc\s*chưa\s*vat|giá\s*thuần)'])
     col_map["vat_tong"] = find_col([
         r'^vat(\s*\(tổng\))?$',
-        r'^tiền vat$',
-        r'^(?!.*(giá|tổng cộng|chưa gồm|gồm vat)).*(\bvat\b)'
+        r'^tiền\s*vat$',
+        r'^(?!.*(giá|tổng\s*cộng|chưa\s*gồm|gồm\s*vat)).*(\bvat\b)'
     ])
     col_map["kpbt"] = find_col([
-        r'^(kpbt|kinh phí bảo trì|kpbt\s*\(tổng\)|kinh phí bảo trì\s*\(kpbt\))$',
-        r'^(?!.*(giá|tổng cộng|chưa gồm|gồm vat)).*(kpbt|kinh phí bảo trì)'
+        r'^(kpbt|kinh\s*phí\s*bảo\s*trì|kpbt\s*\(tổng\)|kinh\s*phí\s*bảo\s*trì\s*\(kpbt\))$',
+        r'^(?!.*(giá|tổng\s*cộng|chưa\s*gồm|gồm\s*vat)).*(kpbt|kinh\s*phí\s*bảo\s*trì)'
     ])
     col_map["gia_full"] = find_col([
-        r'^(?!.*(chưa|chua|trước|truoc|đơn\s*giá|don\s*gia|/m2|/m²)).*(gồm\s*vat|gom\s*vat|giá\s*full|tổng\s*giá|giá\s*niêm\s*yết|giá\s*bán\s*gồm)',
+        r'^(?!.*(chưa|chua|trước|truoc|đơn\s*giá|don\s*gia|/m2|/m²)).*(gồm\s*vat|gom\s*vat|giá\s*full|tổng\s*giá|giá\s*niêm\s*yết|giá\s*bán\s*gồm|giá\s*all-in)',
         r'^(giá\s*bán|giá|tổng\s*giá)$'
     ])
-    col_map["gia_vay"] = find_col([r'(giá vay|vay nh|htls|vay 70)'])
-    col_map["gia_tttd"] = find_col([r'(tiến độ|tttđ|tttd|thanh toán chuẩn)'])
-    col_map["gia_tts"] = find_col([r'(thanh toán sớm|tts|tt sớm|không vay)'])
-    col_map["don_gia_m2"] = find_col([r'(đơn giá|don gia|giá/m2|giá / m)'])
-    col_map["gift"] = find_col([r'(quà tặng|qua tang|ưu đãi|chiết khấu)'])
-    col_map["desc"] = find_col([r'(mô tả|mo ta|view|vị trí)'])
-    col_map["csbh"] = find_col([r'(csbh|chính sách)'])
-    col_map["bank"] = find_col([r'(ngân hàng|ngan hang|bank)'])
-    col_map["note"] = find_col([r'(ghi chú|ghi chu|note)'])
-    col_map["status"] = find_col([r'(trạng thái|trang thai|tình trạng|check\s*bán|check\s*ban)'])
+    col_map["gia_vay"] = find_col([r'(giá\s*vay|vay\s*nh|htls|vay\s*70|vay\s*htls)'])
+    col_map["gia_tttd"] = find_col([r'(tiến\s*độ|tttđ|tttd|thanh\s*toán\s*chuẩn|giá\s*tttđ|giá\s*tttd)'])
+    col_map["gia_tts"] = find_col([r'(thanh\s*toán\s*sớm|tts|tt\s*sớm|không\s*vay|giá\s*tts)'])
+    col_map["don_gia_m2"] = find_col([r'(đơn\s*giá|don\s*gia|giá/m2|giá\s*/\s*m|tr/m2)'])
+    col_map["gift"] = find_col([r'(quà\s*tặng|qua\s*tang|ưu\s*đãi|chiết\s*khấu)'])
+    col_map["desc"] = find_col([r'(mô\s*tả|mo\s*ta|view|vị\s*trí)'])
+    col_map["csbh"] = find_col([r'(csbh|chính\s*sách)'])
+    col_map["bank"] = find_col([r'(ngân\s*hàng|ngan\s*hang|bank)'])
+    col_map["note"] = find_col([r'(ghi\s*chú|ghi\s*chu|note)'])
+    col_map["status"] = find_col([r'(trạng\s*thái|trang\s*thai|tình\s*trạng|check\s*bán|check\s*ban)'])
     col_map["dedicated_exclusive"] = find_col([
         r'(quỹ\s*độc\s*quyền|căn\s*độc\s*quyền|hàng\s*độc\s*quyền|quỹ\s*độc\s*quyền|độc\s*quyền|doc\s*quyen)',
-        r'(\bđq\b|\bdq\b|\bqđq\b|\bqdq\b|\bdqd\b)'
+        r'(\bđq\b|\bdq\b|\bqđq\b|\bdqd\b)'
     ])
     col_map["fund_group"] = find_col([r'(nhóm\s*quỹ|nhom\s*quy|loại\s*quỹ|loai\s*quy|nguồn\s*quỹ|nguon\s*quy|thuộc\s*quỹ)'])
-    col_map["chi_can"] = find_col([r'(ảnh chỉ căn|chỉ căn|mặt bằng|layout|hình ảnh|link ảnh)'])
-    col_map["ptg"] = find_col([r'(phiếu tính giá|ptg|bảng tính|link ptg|tài liệu)'])
-    col_map["issue_date"] = find_col([r'(ngày cấp|ngay cap|ngày vào hàng|ngày cập nhật)'])
+    col_map["chi_can"] = find_col([r'(ảnh\s*chỉ\s*căn|chỉ\s*căn|mặt\s*bằng|layout|hình\s*ảnh|link\s*ảnh)'])
+    col_map["ptg"] = find_col([r'(phiếu\s*tính\s*giá|ptg|bảng\s*tính|link\s*ptg|tài\s*liệu)'])
+    col_map["issue_date"] = find_col([r'(ngày\s*cấp|ngay\s*cap|ngày\s*vào\s*hàng|ngày\s*cập\s*nhật)'])
 
     return col_map
 
 def detect_header_row(rows: List[List[str]]) -> Optional[Tuple[int, Dict[str, int]]]:
-    """Quét 25 dòng đầu để tìm dòng Header phù hợp nhất."""
-    max_scan = min(len(rows), 25)
+    """Quét 35 dòng đầu để tìm dòng Header phù hợp nhất."""
+    max_scan = min(len(rows), 35)
     best_row = -1
     best_score = 0
 
     for r in range(max_scan):
         row_str = ' | '.join([str(c or '').lower() for c in rows[r]])
         score = 0
-        if re.search(r'mã căn|ma can|mã sp|ký hiệu|căn số', row_str):
+        if re.search(r'mã\s*căn|ma\s*can|mã\s*sp|mã\s*sản\s*phẩm|ma\s*san\s*pham|ký\s*hiệu|căn\s*số|mã\s*lô|căn\s*hộ', row_str):
             score += 4
-        if re.search(r'diện tích|dien tich|dt đất|dtđ|dtxd', row_str):
+        if re.search(r'diện\s*tích|dien\s*tich|dt\s*đất|dtđ|dtxd|dttt|dt\s*tt|thông\s*thủy', row_str):
             score += 3
-        if re.search(r'giá|gia ban|tổng giá|giá full|giá vay', row_str):
+        if re.search(r'giá|gia\s*ban|tổng\s*giá|giá\s*full|giá\s*vay|giá\s*thuần|tts|tttđ', row_str):
             score += 3
-        if re.search(r'phân khu|loại hình|hướng|tòa|tầng', row_str):
+        if re.search(r'phân\s*khu|loại\s*hình|loại\s*căn|loại\s*ch|hướng|tòa|tầng', row_str):
             score += 2
 
         if score > best_score:
@@ -347,8 +350,32 @@ def parse_agency_grid_data(
         gia_vay = normalize_price_to_vnd(get_val(row, cm['gia_vay']))
         gia_tttd = normalize_price_to_vnd(get_val(row, cm['gia_tttd']))
         gia_tts = normalize_price_to_vnd(get_val(row, cm['gia_tts']))
-        # Yêu cầu: Chỉ cần có một trường 'Giá chưa gồm VAT' hoặc 'Giá gồm VAT và KPBT' là đủ điều kiện giá
-        has_valid_price = bool(gia_chua_vat or gia_full)
+        has_valid_price = bool(gia_chua_vat or gia_full or gia_vay or gia_tttd or gia_tts)
+        if not gia_full:
+            gia_full = gia_tttd or gia_tts or gia_vay or gia_chua_vat
+
+        # Phục hồi giá từ dữ liệu ô nếu bảng hàng hoàn toàn KHÔNG CÓ cột giá nào được nhận diện
+        has_any_price_col = any(cm.get(k, -1) != -1 for k in ['gia_full', 'gia_chua_vat', 'gia_vay', 'gia_tttd', 'gia_tts'])
+        if not has_valid_price and not has_any_price_col:
+            for c_idx, cell_item in enumerate(row):
+                if c_idx in (cm.get('unit_code'), cm.get('stt'), cm.get('zone'), cm.get('tower'), cm.get('floor')):
+                    continue
+                c_val = str(cell_item.get('formattedValue', '') if isinstance(cell_item, dict) else cell_item or '').strip()
+                if re.match(r'^\d{1,3}([.,]\d{3}){2,}$', c_val):
+                    p_c = normalize_price_to_vnd(c_val)
+                    if p_c and p_c >= 100_000_000:
+                        gia_full = p_c
+                        has_valid_price = True
+                        break
+                if re.match(r'^\d{1,2}[.,]\d{2,3}$', c_val):
+                    try:
+                        f_v = float(c_val.replace(',', '.'))
+                        if 0.5 <= f_v <= 150:
+                            gia_full = int(f_v * 1_000_000_000)
+                            has_valid_price = True
+                            break
+                    except (ValueError, TypeError):
+                        pass
 
         # 4. Trạng thái căn từ văn bản nguồn
         raw_status = get_val(row, cm['status']).strip().lower()
@@ -480,6 +507,18 @@ def parse_agency_grid_data(
 
             # Loại bỏ các dòng trống không có cả diện tích lẫn giá
             has_area = bool(land_area or build_area)
+            has_any_area_col = any(cm.get(k, -1) != -1 for k in ['land_area', 'build_area', 'net_area', 'gross_area'])
+            if not has_area and not has_any_area_col:
+                for c_idx, c_item in enumerate(row):
+                    if c_idx in (cm.get('unit_code'), cm.get('stt'), cm.get('zone'), cm.get('tower'), cm.get('floor')):
+                        continue
+                    v_str = str(c_item.get('formattedValue', '') if isinstance(c_item, dict) else c_item or '').strip()
+                    if re.match(r'^\d+([.,]\d+)?$', v_str):
+                        a_cand = sanitize_single_area(v_str, is_low_rise=True)
+                        if a_cand and 15 <= a_cand <= 2500:
+                            land_area = a_cand
+                            has_area = True
+                            break
             if not has_area and not has_valid_price:
                 continue
 
@@ -512,6 +551,18 @@ def parse_agency_grid_data(
 
             # Loại bỏ các dòng trống không có cả diện tích lẫn giá
             has_area = bool(net_area or gross_area)
+            has_any_area_col = any(cm.get(k, -1) != -1 for k in ['land_area', 'build_area', 'net_area', 'gross_area'])
+            if not has_area and not has_any_area_col:
+                for c_idx, c_item in enumerate(row):
+                    if c_idx in (cm.get('unit_code'), cm.get('stt'), cm.get('zone'), cm.get('tower'), cm.get('floor')):
+                        continue
+                    v_str = str(c_item.get('formattedValue', '') if isinstance(c_item, dict) else c_item or '').strip()
+                    if re.match(r'^\d+([.,]\d+)?$', v_str):
+                        a_cand = sanitize_single_area(v_str, is_low_rise=False)
+                        if a_cand and 15 <= a_cand <= 400:
+                            net_area = a_cand
+                            has_area = True
+                            break
             if not has_area and not has_valid_price:
                 continue
 
@@ -669,7 +720,7 @@ def fetch_agency_from_drive_xlsx(
                 sheets_to_scan = [wb[target_sheet_name]]
             else:
                 logger.info(f"Không tìm thấy sheet tương ứng GID {target_gid} trong metadata xlsx {agency_name} ({file_id}). Thử fallback GViz CSV.")
-                return fetch_agency_via_gviz_csv(
+                csv_res = fetch_agency_via_gviz_csv(
                     file_id=file_id,
                     target_gid=target_gid,
                     agency_name=agency_name,
@@ -681,16 +732,29 @@ def fetch_agency_from_drive_xlsx(
                     sub_tab=sub_tab,
                     is_general_pool=is_general_pool
                 )
+                if csv_res:
+                    return csv_res
+                logger.info(f"GViz CSV không có dữ liệu cho {agency_name}. Quét các tab hiển thị trong workbook đã tải.")
+                sheets_to_scan = [
+                    ws for ws in wb.worksheets
+                    if getattr(ws, 'sheet_state', 'visible') == 'visible' and not skip_rx.search(ws.title)
+                ]
         else:
             sheets_to_scan = [
                 ws for ws in wb.worksheets
                 if getattr(ws, 'sheet_state', 'visible') == 'visible' and not skip_rx.search(ws.title)
             ]
 
+        if not sheets_to_scan and sub_tab:
+            for ws in wb.worksheets:
+                if re.search(re.escape(sub_tab), ws.title, re.IGNORECASE):
+                    sheets_to_scan.append(ws)
+                    break
+
         all_units = []
         for ws in sheets_to_scan:
-            # Bỏ qua các tab bị ẩn (sheet hidden/veryHidden) nếu không chỉ định GID cụ thể
-            if getattr(ws, 'sheet_state', 'visible') != 'visible':
+            # Bỏ qua các tab bị ẩn (sheet hidden/veryHidden) nếu không chỉ định GID hoặc không khớp sub_tab
+            if getattr(ws, 'sheet_state', 'visible') != 'visible' and not (sub_tab and re.search(re.escape(sub_tab), ws.title, re.IGNORECASE)):
                 continue
             grid_rows = []
             row_hidden_flags = []
@@ -793,38 +857,68 @@ def fetch_agency_from_google_sheet(
         meta = _execute_with_retry(service.spreadsheets().get(spreadsheetId=file_id))
         sheets = meta.get('sheets', [])
         chosen_sheet_title = None
+        chosen_sheet_gid = target_gid
 
         if target_gid is not None:
             for sh in sheets:
                 if sh['properties']['sheetId'] == target_gid:
-                    # Nếu tab chỉ định bị ẩn -> bỏ qua
-                    if sh['properties'].get('hidden', False):
-                        logger.info(f"Tab GID {target_gid} trong {agency_name} ({file_id}) bị ẩn. Bỏ qua.")
-                        return []
-                    chosen_sheet_title = sh['properties']['title']
+                    if not sh['properties'].get('hidden', False):
+                        chosen_sheet_title = sh['properties']['title']
+                        chosen_sheet_gid = sh['properties']['sheetId']
+                    else:
+                        logger.info(f"Tab GID {target_gid} trong {agency_name} ({file_id}) bị ẩn. Sẽ tìm tab khả dụng khác không bị ẩn.")
                     break
 
+        skip_rx = re.compile(NON_INVENTORY_TAB_REGEX, re.IGNORECASE)
+
         if not chosen_sheet_title:
-            if target_gid is not None:
-                logger.info(f"Không tìm thấy GID {target_gid} trong Sheets API cho {agency_name} ({file_id}). Thử fallback GViz CSV.")
-                return fetch_agency_via_gviz_csv(
-                    file_id=file_id,
-                    target_gid=target_gid,
-                    agency_name=agency_name,
-                    project_key=project_key,
-                    is_low_rise=is_low_rise,
-                    existing_pool_keys=existing_pool_keys,
-                    today_str=today_str,
-                    agency_url=agency_url,
-                    sub_tab=sub_tab,
-                    is_general_pool=is_general_pool
-                )
-            for sh in sheets:
-                if not sh['properties'].get('hidden', False):
-                    chosen_sheet_title = sh['properties']['title']
-                    break
+            # 1. Tìm tab hiển thị khớp sub_tab nếu có
+            if sub_tab:
+                for sh in sheets:
+                    if not sh['properties'].get('hidden', False):
+                        t = sh['properties']['title'].strip()
+                        if not skip_rx.search(t) and re.search(re.escape(sub_tab), t, re.IGNORECASE):
+                            chosen_sheet_title = sh['properties']['title']
+                            chosen_sheet_gid = sh['properties']['sheetId']
+                            break
+
+            # 2. Tìm tab hiển thị có từ khóa bảng hàng / căn
             if not chosen_sheet_title:
+                for sh in sheets:
+                    if not sh['properties'].get('hidden', False):
+                        t = sh['properties']['title'].strip()
+                        if not skip_rx.search(t) and re.search(r'bảng\s*hàng|bang\s*hang|\bbh\b|quỹ|quy|căn|can|giỏ\s*hàng|gio\s*hang|bán|ban|qđq|độc\s*quyền', t, re.IGNORECASE):
+                            chosen_sheet_title = sh['properties']['title']
+                            chosen_sheet_gid = sh['properties']['sheetId']
+                            break
+
+            # 3. Tab hiển thị bất kỳ không thuộc NON_INVENTORY_TAB_REGEX
+            if not chosen_sheet_title:
+                for sh in sheets:
+                    if not sh['properties'].get('hidden', False):
+                        t = sh['properties']['title'].strip()
+                        if not skip_rx.search(t):
+                            chosen_sheet_title = sh['properties']['title']
+                            chosen_sheet_gid = sh['properties']['sheetId']
+                            break
+
+            if not chosen_sheet_title:
+                if target_gid is not None:
+                    logger.info(f"Không tìm thấy tab hiển thị phù hợp trong Sheets API cho {agency_name} ({file_id}). Thử fallback GViz CSV.")
+                    return fetch_agency_via_gviz_csv(
+                        file_id=file_id,
+                        target_gid=target_gid,
+                        agency_name=agency_name,
+                        project_key=project_key,
+                        is_low_rise=is_low_rise,
+                        existing_pool_keys=existing_pool_keys,
+                        today_str=today_str,
+                        agency_url=agency_url,
+                        sub_tab=sub_tab,
+                        is_general_pool=is_general_pool
+                    )
                 chosen_sheet_title = sheets[0]['properties']['title']
+                chosen_sheet_gid = sheets[0]['properties']['sheetId']
 
         # Đọc dữ liệu ma trận ô (values + hyperlinks + backgroundColor) và rowMetadata
         try:
@@ -960,11 +1054,11 @@ def fetch_agency_from_google_sheet(
                 sub_tab=sub_tab,
                 is_general_pool=is_general_pool
             )
-        if any(kw in err_msg.lower() for kw in ["403", "permission", "cannotdownloadfile", "amplification", "ratio", "limit", "zipbomb"]):
+        if any(kw in err_msg.lower() for kw in ["403", "permission", "cannotdownloadfile", "amplification", "ratio", "limit", "zipbomb", "unable to parse range", "parse range"]):
             logger.info(f"Sheets API bị chặn/lỗi ({err_msg}). Fallback sang GViz CSV cho {agency_name} ({file_id})")
             return fetch_agency_via_gviz_csv(
                 file_id=file_id,
-                target_gid=target_gid,
+                target_gid=chosen_sheet_gid or target_gid,
                 agency_name=agency_name,
                 project_key=project_key,
                 is_low_rise=is_low_rise,

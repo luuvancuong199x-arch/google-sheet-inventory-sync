@@ -5,11 +5,10 @@ from src.master_reader import parse_master_sheet_rows
 
 
 def test_target_projects_mas_separated():
-    # Phải có 4 dự án riêng biệt
+    # Phải có các dự án thành viên hoạt động
     assert "MGC" in TARGET_PROJECTS
     assert "MEL" in TARGET_PROJECTS
     assert "HSG" in TARGET_PROJECTS
-    assert "LEP" in TARGET_PROJECTS
 
     assert TARGET_PROJECTS["MGC"]["id"] == "1fV1_ZKQXVzsrdMa8ElSpVu-32cj4vPTzgftN81sDynM"
     assert TARGET_PROJECTS["MGC"]["name"] == "Masteri Grand Coast"
@@ -23,10 +22,6 @@ def test_target_projects_mas_separated():
     assert TARGET_PROJECTS["HSG"]["id"] == "1wZeM_3wLws_n86fCjOdUIeKDlj6wu5LtOUYDJ86eftk"
     assert TARGET_PROJECTS["HSG"]["name"] == "LUMIÈRE Hanoi Seasons Garden"
     assert TARGET_PROJECTS["HSG"]["sub_tab"] == "HSG"
-
-    assert TARGET_PROJECTS["LEP"]["id"] == "1fV1_ZKQXVzsrdMa8ElSpVu-32cj4vPTzgftN81sDynM"
-    assert TARGET_PROJECTS["LEP"]["name"] == "LUMIÈRE Essence Peak"
-    assert TARGET_PROJECTS["LEP"]["sub_tab"] == "LEP"
 
     assert "Global Gate" in TARGET_PROJECTS
     assert TARGET_PROJECTS["Global Gate"]["id"] == "1Q7DxaK9Z-s1IVt7fNoW5pTfJnkoSJe9RhyICR4QSSdQ"

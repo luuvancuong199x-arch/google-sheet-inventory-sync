@@ -95,12 +95,13 @@ def get_candidate_rank(
     is_exclusive = bool(item.get("is_exclusive"))
 
     item_agency = extract_clean_agency_name(item.get("agency_name") or '').strip().upper()
+    is_vhub = bool(item.get("is_vhub") or re.search(r'\bvhub\b', item_agency, re.IGNORECASE))
     is_official_qc = bool(re.search(r'quỹ chung|quy chung|quỹ cđt|quy cdt', item_agency, re.IGNORECASE))
     is_current_protected_owner = bool(is_within_exclusive_period and existing_owner and item_agency == existing_owner)
 
     is_active = (item.get("status") in ["Còn hàng", "Đang lock"])
     price_count = count_filled_prices(item["row_values"], is_low_rise)
-    return (has_valid_price, is_official_qc, is_exclusive, is_active, price_count, is_current_protected_owner)
+    return (is_vhub, has_valid_price, is_official_qc, is_exclusive, is_active, price_count, is_current_protected_owner)
 
 def smart_upsert_pool(
     existing_pool_by_key: Dict[str, Dict[str, Any]],

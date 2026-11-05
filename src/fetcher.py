@@ -422,7 +422,7 @@ def parse_agency_grid_data(
 
         # Nhóm quỹ theo Quy tắc chuẩn hóa:
         # 1. Quỹ chung: nguồn Quỹ chung hoặc trạng thái Check Admin -> fund_group = 'Quỹ chung'
-        # 2. Vhub: nguồn đại lý tên là Vhub -> fund_group = 'Quỹ độc quyền'
+        # 2. Vhub: nguồn đại lý tên là Vhub -> fund_group = 'Quỹ độc quyền' (toàn quyền ưu tiên)
         # 3. Các đại lý khác: nếu xác định là độc quyền của đại lý đó -> fund_group = 'Quỹ chéo'
         is_vhub = bool(re.search(r'\bvhub\b', agency_name, re.IGNORECASE))
         is_check_admin = bool(re.search(r'check\s*admin', combined_status, re.IGNORECASE))
@@ -430,6 +430,17 @@ def parse_agency_grid_data(
         if is_general_pool or bool(re.search(r'quỹ chung|quy chung|quỹ cđt|quy cdt', agency_name, re.IGNORECASE)) or is_check_admin:
             is_exclusive = False
             fund_group = 'Quỹ chung'
+        elif is_vhub:
+            # Nguồn Quỹ độc quyền Vhub luôn ưu tiên lấy thông tin từ nguồn được gán:
+            # 100% căn trong nguồn Vhub được định danh là Quỹ độc quyền (trừ khi cell ghi rõ 'Quỹ chung' / 'QC')
+            fund_col = cm.get('dedicated_exclusive', -1)
+            raw_excl = get_val(row, fund_col).strip() if fund_col != -1 else ''
+            if re.search(r'^(quỹ\s*chung|chung|\bqc\b)$', raw_excl, re.IGNORECASE):
+                is_exclusive = False
+                fund_group = 'Quỹ chung'
+            else:
+                is_exclusive = True
+                fund_group = 'Quỹ độc quyền'
         elif is_tab_exclusive:
             # Tab đại lý có tiêu đề Độc quyền (VD: Giỏ Độc quyền, NSL_ ĐỘC QUYỀN...)
             fund_col = cm.get('dedicated_exclusive', -1)
@@ -439,7 +450,7 @@ def parse_agency_grid_data(
                 fund_group = 'Quỹ chung'
             else:
                 is_exclusive = True
-                fund_group = 'Quỹ độc quyền' if is_vhub else 'Quỹ chéo'
+                fund_group = 'Quỹ chéo'
         else:
             # Nguồn của Đại lý phân phối thông thường
             fund_col = cm.get('dedicated_exclusive', -1)
@@ -448,14 +459,14 @@ def parse_agency_grid_data(
                 raw_excl = get_val(row, fund_col).strip()
                 if re.search(r'độc\s*quyền|doc\s*quyen|\b(đq|dq|qđq|qdq|dqd|qr|quỹ\s*riêng|quy\s*rieng|x|có|co|1)\b', raw_excl, re.IGNORECASE):
                     is_exclusive = True
-                    fund_group = 'Quỹ độc quyền' if is_vhub else 'Quỹ chéo'
+                    fund_group = 'Quỹ chéo'
                 else:
                     is_exclusive = False
                     fund_group = 'Quỹ chung'
             else:
                 # Trang tính KHÔNG CÓ cột phân loại độc quyền -> 100% căn là độc quyền của đại lý
                 is_exclusive = True
-                fund_group = 'Quỹ độc quyền' if is_vhub else 'Quỹ chéo'
+                fund_group = 'Quỹ chéo'
 
         # CSBH
         raw_csbh = get_val(row, cm['csbh']).strip()
@@ -614,6 +625,7 @@ def parse_agency_grid_data(
             "agency_name": clean_agency,
             "agency_url": agency_url,
             "is_exclusive": is_exclusive,
+            "is_vhub": is_vhub,
             "status": resolved_status,
             "issue_date": issue_date,
             "expiry_status": expiry_info["status"],

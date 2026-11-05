@@ -542,3 +542,112 @@ def test_issue_date_preserved_on_repeated_sync():
 
     # LK-NEW must get 05/11/2026 because it is brand new
     assert by_key["LK-NEW"][37] == "05/11/2026"
+
+
+def test_vhub_exclusive_source_wins_over_general_pool():
+    """
+    Nguồn Quỹ độc quyền Vhub luôn ưu tiên lấy thông tin từ nguồn được gán:
+    Nếu một căn xuất hiện ở cả Quỹ chung (chính thức) và VHUB:
+    -> VHUB PHẢI CHIẾN THẮNG (Đại lý = VHUB, Nhóm quỹ = Quỹ độc quyền).
+    """
+    scanned_units = [
+        # Quỹ chung quét trước với giá đầy đủ
+        {
+            "unit_key": "LK-VHUB-01",
+            "agency_name": "Quỹ chung",
+            "is_exclusive": False,
+            "is_vhub": False,
+            "status": "Còn hàng",
+            "row_values": [0, "Khu A", "LK-VHUB-01", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng", "Quỹ chung"] + [""] * 3 + ["Quỹ chung", "03/11/2026", "Còn 30 ngày"]
+        },
+        # VHUB quét sau với thông tin từ nguồn được gán
+        {
+            "unit_key": "LK-VHUB-01",
+            "agency_name": "VHUB",
+            "is_exclusive": True,
+            "is_vhub": True,
+            "status": "Đang lock",
+            "row_values": [0, "Khu A", "LK-VHUB-01", "Thô", "LK", 100, 200, 5200000000] + [""] * 23 + ["Đang lock", "Quỹ độc quyền"] + [""] * 3 + ["VHUB", "05/11/2026", "Còn 30 ngày"]
+        }
+    ]
+
+    final_rows = smart_upsert_pool({}, scanned_units, is_low_rise=True, today_str="05/11/2026")
+    assert len(final_rows) == 1
+    row = final_rows[0]
+    assert row[2] == "LK-VHUB-01"
+    assert row[31] == "Đang lock"
+    assert row[32] == "Quỹ độc quyền"
+    assert row[36] == "VHUB"
+    assert row[7] == 5200000000
+
+
+def test_vhub_exclusive_source_wins_over_other_agency_with_more_prices():
+    """
+    Nếu Đại lý khác có nhiều trường giá hơn nhưng căn đó thuộc nguồn Quỹ độc quyền VHUB:
+    -> VHUB VẪN PHẢI CHIẾN THẮNG vì nguồn VHUB được ưu tiên tuyệt đối.
+    """
+    scanned_units = [
+        # Agency A điền nhiều giá hơn
+        {
+            "unit_key": "LK-VHUB-02",
+            "agency_name": "Agency A",
+            "is_exclusive": True,
+            "is_vhub": False,
+            "status": "Còn hàng",
+            "row_values": [0, "Khu A", "LK-VHUB-02", "Thô", "LK", 100, 200, 5000000000, 500000000, 100000000, 5600000000] + [""] * 20 + ["Còn hàng", "Quỹ chéo"] + [""] * 3 + ["Agency A", "03/11/2026", "Còn 30 ngày"]
+        },
+        # VHUB chỉ có 1 trường giá
+        {
+            "unit_key": "LK-VHUB-02",
+            "agency_name": "VHUB",
+            "is_exclusive": True,
+            "is_vhub": True,
+            "status": "Còn hàng",
+            "row_values": [0, "Khu A", "LK-VHUB-02", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng", "Quỹ độc quyền"] + [""] * 3 + ["VHUB", "05/11/2026", "Còn 30 ngày"]
+        }
+    ]
+
+    final_rows = smart_upsert_pool({}, scanned_units, is_low_rise=True, today_str="05/11/2026")
+    assert len(final_rows) == 1
+    row = final_rows[0]
+    assert row[2] == "LK-VHUB-02"
+    assert row[32] == "Quỹ độc quyền"
+    assert row[36] == "VHUB"
+
+
+def test_vhub_takes_over_existing_unit_from_old_agency():
+    """
+    Căn hộ trước đây thuộc Agency A (< 30 ngày), nhưng đợt này VHUB đưa vào giỏ độc quyền:
+    -> VHUB PHẢI LẤY ĐƯỢC QUYỀN SỞ HỮU, bảo vệ chủ sở hữu cũ không ngăn cản VHUB.
+    """
+    existing_pool = {
+        "LK-VHUB-03": {
+            "unit_key": "LK-VHUB-03",
+            "row_values": [1, "Khu A", "LK-VHUB-03", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng", "Quỹ chéo"] + [""] * 3 + ["Agency A", "01/11/2026", "Còn 26 ngày"]
+        }
+    }
+    scanned_units = [
+        {
+            "unit_key": "LK-VHUB-03",
+            "agency_name": "Agency A",
+            "is_exclusive": True,
+            "is_vhub": False,
+            "status": "Còn hàng",
+            "row_values": [0, "Khu A", "LK-VHUB-03", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng", "Quỹ chéo"] + [""] * 3 + ["Agency A", "01/11/2026", "Còn 26 ngày"]
+        },
+        {
+            "unit_key": "LK-VHUB-03",
+            "agency_name": "VHUB",
+            "is_exclusive": True,
+            "is_vhub": True,
+            "status": "Còn hàng",
+            "row_values": [0, "Khu A", "LK-VHUB-03", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng", "Quỹ độc quyền"] + [""] * 3 + ["VHUB", "05/11/2026", "Còn 30 ngày"]
+        }
+    ]
+
+    final_rows = smart_upsert_pool(existing_pool, scanned_units, is_low_rise=True, today_str="05/11/2026", successful_agencies={"Agency A", "VHUB"})
+    assert len(final_rows) == 1
+    row = final_rows[0]
+    assert row[2] == "LK-VHUB-03"
+    assert row[32] == "Quỹ độc quyền"
+    assert row[36] == "VHUB"

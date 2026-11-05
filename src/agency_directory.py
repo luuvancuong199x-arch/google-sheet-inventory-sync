@@ -412,10 +412,12 @@ def compute_project_stats_from_sheet(
 ) -> Dict[str, Any]:
     """Quét dữ liệu hiện tại trên sheet đích để tổng hợp thống kê biến động ngày."""
     is_low_rise = (cfg['type'] == 'LOW_RISE')
-    if spreadsheet_id == '1fV1_ZKQXVzsrdMa8ElSpVu-32cj4vPTzgftN81sDynM':
-        sub_tabs = ['MGC', 'MEL', 'HSG', 'LEP']
+    if 'sub_tab' in cfg:
+        sub_tabs = [cfg['sub_tab']]
+    elif 'sub_tabs' in cfg:
+        sub_tabs = cfg['sub_tabs']
     else:
-        sub_tabs = cfg.get('sub_tabs') or ([cfg['sub_tab']] if 'sub_tab' in cfg else ['Bảng hàng chuẩn hóa'])
+        sub_tabs = ['Bảng hàng chuẩn hóa']
     agency_col_idx = 36 if is_low_rise else 29
     status_col_idx = 31 if is_low_rise else 27
     issue_date_col_idx = 37 if is_low_rise else 30

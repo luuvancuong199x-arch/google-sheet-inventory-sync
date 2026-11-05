@@ -11,18 +11,26 @@ def test_target_projects_mas_separated():
     assert "HSG" in TARGET_PROJECTS
     assert "LEP" in TARGET_PROJECTS
 
+    assert TARGET_PROJECTS["MGC"]["id"] == "1fV1_ZKQXVzsrdMa8ElSpVu-32cj4vPTzgftN81sDynM"
     assert TARGET_PROJECTS["MGC"]["name"] == "Masteri Grand Coast"
     assert TARGET_PROJECTS["MGC"]["sub_tab"] == "MGC"
     assert TARGET_PROJECTS["MGC"]["type"] == "HIGH_RISE"
 
+    assert TARGET_PROJECTS["MEL"]["id"] == "1s3SnBe265ap3SY6x3TXhnYYCC-NwTeBJD_tkez1WEfc"
     assert TARGET_PROJECTS["MEL"]["name"] == "Masteri Era Landmark"
     assert TARGET_PROJECTS["MEL"]["sub_tab"] == "MEL"
 
+    assert TARGET_PROJECTS["HSG"]["id"] == "1wZeM_3wLws_n86fCjOdUIeKDlj6wu5LtOUYDJ86eftk"
     assert TARGET_PROJECTS["HSG"]["name"] == "LUMIÈRE Hanoi Seasons Garden"
     assert TARGET_PROJECTS["HSG"]["sub_tab"] == "HSG"
 
+    assert TARGET_PROJECTS["LEP"]["id"] == "1fV1_ZKQXVzsrdMa8ElSpVu-32cj4vPTzgftN81sDynM"
     assert TARGET_PROJECTS["LEP"]["name"] == "LUMIÈRE Essence Peak"
     assert TARGET_PROJECTS["LEP"]["sub_tab"] == "LEP"
+
+    assert "Global Gate" in TARGET_PROJECTS
+    assert TARGET_PROJECTS["Global Gate"]["id"] == "1Q7DxaK9Z-s1IVt7fNoW5pTfJnkoSJe9RhyICR4QSSdQ"
+    assert TARGET_PROJECTS["Global Gate"]["type"] == "LOW_RISE"
 
 
 def test_lep_canonical_project_resolution():

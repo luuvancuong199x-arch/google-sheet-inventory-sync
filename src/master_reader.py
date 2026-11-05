@@ -206,6 +206,10 @@ def get_agency_links_from_target_sheet(
             if sub_tab and sub_val and sub_val.upper() != 'BẢNG HÀNG' and sub_tab.upper() != sub_val.upper():
                 continue
 
+            # Nếu dự án LEP đang tạm thời dùng chung file với MGC (1fV1_...), bỏ qua các dòng không ghi rõ LEP
+            if spreadsheet_id == '1fV1_ZKQXVzsrdMa8ElSpVu-32cj4vPTzgftN81sDynM' and sub_tab == 'LEP' and (not sub_val or sub_val.upper() != 'LEP'):
+                continue
+
             is_general_pool = bool(re.search(r'quỹ chung|quy chung|quỹ cđt|quy cdt', agency_name, re.IGNORECASE))
 
             parts = re.split(r'[;\n]+|,\s*(?=https?://)|\s+(?=https?://)', link_cell)

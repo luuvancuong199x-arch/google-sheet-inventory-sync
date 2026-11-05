@@ -68,13 +68,13 @@ TARGET_PROJECTS = {
         'sub_tab': 'MGC'
     },
     'MEL': {
-        'id': '1fV1_ZKQXVzsrdMa8ElSpVu-32cj4vPTzgftN81sDynM',
+        'id': '1s3SnBe265ap3SY6x3TXhnYYCC-NwTeBJD_tkez1WEfc',
         'type': 'HIGH_RISE',
         'name': 'Masteri Era Landmark',
         'sub_tab': 'MEL'
     },
     'HSG': {
-        'id': '1fV1_ZKQXVzsrdMa8ElSpVu-32cj4vPTzgftN81sDynM',
+        'id': '1wZeM_3wLws_n86fCjOdUIeKDlj6wu5LtOUYDJ86eftk',
         'type': 'HIGH_RISE',
         'name': 'LUMIÈRE Hanoi Seasons Garden',
         'sub_tab': 'HSG'
@@ -89,6 +89,11 @@ TARGET_PROJECTS = {
         'id': '1LtzwcF6xP-ZdfuNoschNN3-LhbP1fuHqsiA_ad75jJQ',
         'type': 'LOW_RISE',
         'name': 'Dự án OCP2-3'
+    },
+    'Global Gate': {
+        'id': '1Q7DxaK9Z-s1IVt7fNoW5pTfJnkoSJe9RhyICR4QSSdQ',
+        'type': 'LOW_RISE',
+        'name': 'Dự án Vinhomes Global Gate'
     }
 }
 

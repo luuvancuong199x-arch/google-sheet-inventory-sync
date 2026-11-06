@@ -565,6 +565,8 @@ def map_merged_row_to_db_record(
     )
     if don_gia_m2:
         price_per_meter = don_gia_m2
+    if not total_price:
+        total_price = progress_payment_price or early_payment_price or loan_price or price_before_vat
 
     # Canonical subdivision resolution
     subdivision_id = None

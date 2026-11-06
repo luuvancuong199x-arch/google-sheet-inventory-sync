@@ -74,8 +74,8 @@ def classify_rgb_color(r: float, g: float, b: float) -> str:
     # Trắng, xám hoặc gần đồng màu -> neutral
     if abs(r - g) < 0.05 and abs(g - b) < 0.05:
         return 'neutral'
-    # Màu vàng / cam / hổ phách: cả R và G đều cao, B thấp hơn rõ rệt
-    if r > 0.65 and g > 0.60 and (min(r, g) - b) >= 0.10:
+    # Màu vàng / cam / hổ phách (bao gồm cam tiêu đề #FF9900): R và G đều cao, B thấp hơn rõ rệt
+    if r > 0.65 and g >= 0.55 and (min(r, g) - b) >= 0.10:
         return 'yellow'
     # Màu đỏ: R vượt trội so với G và B
     if r > 0.50 and (r - max(g, b)) >= 0.10 and (r - g) >= 0.10:
@@ -199,8 +199,8 @@ def map_columns_from_headers(header_cells: List[str]) -> Dict[str, int]:
         r'^(giá\s*bán|giá|tổng\s*giá)$'
     ])
     col_map["gia_vay"] = find_col([r'(giá\s*vay|vay\s*nh|htls|vay\s*70|vay\s*htls|vvnh|giá\s*vvnh)'])
-    col_map["gia_tttd"] = find_col([r'(tiến\s*độ|tttđ|tttd|thanh\s*toán\s*chuẩn|giá\s*tttđ|giá\s*tttd|giá\s*tiến\s*độ)'])
-    col_map["gia_tts"] = find_col([r'(thanh\s*toán\s*sớm|tts|tt\s*sớm|không\s*vay|giá\s*tts|thanh\s*toán\s*nhanh)'])
+    col_map["gia_tttd"] = find_col([r'(tiến\s*độ|tttđ|tttd|thanh\s*toán\s*chuẩn|giá\s*tttđ|giá\s*tttd|giá\s*tiến\s*độ|\btđc\b|\btdc\b)'])
+    col_map["gia_tts"] = find_col([r'^(?!.*(đơn\s*giá|don\s*gia|/m2|/m²)).*(thanh\s*toán\s*sớm|tts|tt\s*sớm|không\s*vay|giá\s*tts|thanh\s*toán\s*nhanh)'])
     col_map["don_gia_m2"] = find_col([r'(đơn\s*giá|don\s*gia|giá/m2|giá\s*/\s*m|tr/m2)'])
     col_map["gift"] = find_col([r'(quà\s*tặng|qua\s*tang|ưu\s*đãi|chiết\s*khấu)'])
     col_map["desc"] = find_col([r'(mô\s*tả|mo\s*ta|view|vị\s*trí)'])
@@ -526,9 +526,13 @@ def parse_agency_grid_data(
             if gia_full and gia_chua_vat and gia_full == gia_chua_vat and vat_tong:
                 gia_full = gia_chua_vat + vat_tong + (kpbt or 0)
 
-            gia_chua_vat, gia_full, don_gia_m2 = sanitize_and_cross_validate_prices(
-                gia_chua_vat, gia_full, don_gia_m2
+            gia_full, gia_chua_vat, don_gia_m2 = sanitize_and_cross_validate_prices(
+                total_price=gia_full,
+                price_before_vat=gia_chua_vat,
+                don_gia_m2=don_gia_m2
             )
+            if not gia_full:
+                gia_full = gia_tttd or gia_tts or gia_vay or gia_chua_vat
 
             frontage = normalize_numeric_or_null(get_val(row, cm['frontage']))
             floors = normalize_numeric_or_null(get_val(row, cm['floors']), is_integer=True)
@@ -604,9 +608,13 @@ def parse_agency_grid_data(
             if gia_full and gia_chua_vat and gia_full == gia_chua_vat and kpbt:
                 gia_full = gia_chua_vat + kpbt
 
-            gia_chua_vat, gia_full, don_gia_m2 = sanitize_and_cross_validate_prices(
-                gia_chua_vat, gia_full, don_gia_m2
+            gia_full, gia_chua_vat, don_gia_m2 = sanitize_and_cross_validate_prices(
+                total_price=gia_full,
+                price_before_vat=gia_chua_vat,
+                don_gia_m2=don_gia_m2
             )
+            if not gia_full:
+                gia_full = gia_tttd or gia_tts or gia_vay or gia_chua_vat
 
             # Khớp chính xác 32 cột chuẩn Cao tầng (thêm cột 32 Hạn cấp hàng)
             row_values = [

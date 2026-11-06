@@ -167,12 +167,13 @@ def smart_upsert_pool(
 
     # 2. Khởi tạo kho dữ liệu tổng hợp dựa trên existing_pool
     # Bảo toàn các căn từ các đại lý gặp sự cố mạng (không nằm trong successful_agencies)
+    successful_upper = {extract_clean_agency_name(a).strip().upper() for a in (successful_agencies or set()) if a}
     master_pool = {}
     for key, data in existing_pool_by_key.items():
         row_vals = list(data.get("row_values", []))
         old_agency_raw = str(row_vals[agency_col_idx] if len(row_vals) > agency_col_idx else '').strip()
-        clean_old_agency = extract_clean_agency_name(old_agency_raw)
-        if successful_agencies and clean_old_agency in successful_agencies:
+        clean_old_agency = extract_clean_agency_name(old_agency_raw).strip()
+        if successful_upper and (not clean_old_agency or clean_old_agency.upper() in successful_upper):
             continue
         # Bỏ qua các dòng dữ liệu rác cũ bị lệch cột ngày vào cột đại lý
         if re.match(r'^\d{2}/\d{2}/\d{4}$', clean_old_agency):

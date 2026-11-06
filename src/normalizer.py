@@ -9,7 +9,7 @@ Khắc phục triệt để các lỗi logic của hệ thống cũ:
 """
 
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Dict, Any, List, Optional, Tuple
 from src.config import DEFAULT_POLICY_YEAR
 
@@ -882,9 +882,10 @@ def realign_legacy_row(row: List[Any], is_low_rise: bool) -> List[Any]:
     is_date_34 = bool(re.match(r'^\d{1,2}[/-]\d{1,2}[/-]\d{4}$', val_34) or re.match(r'^\d{5}$', val_34))
 
     # 1. Đã ở chuẩn mới (Phương án 2):
-    # col 31 là Trạng thái, col 32 là Nhóm quỹ, col 33 là Đại lý (không phải URL), col 34 là ngày (hoặc trống)
+    # col 31 là Trạng thái, col 32 là Nhóm quỹ, col 33 là Đại lý (có giá trị và không phải URL), col 34 là ngày (hoặc trống)
     if val_31.lower() in status_keywords and (val_32.lower() in fund_keywords or not val_32):
-        if not is_url_33 and (is_date_34 or not val_34) and ('http' not in val_33 and 'drive' not in val_33):
+        has_legacy_shifted_tail = bool(not val_33 and not val_34 and (val_36 or val_37) and 'http' not in val_36)
+        if not is_url_33 and not has_legacy_shifted_tail and (is_date_34 or not val_34) and ('http' not in val_33 and 'drive' not in val_33):
             if re.match(r'^\d{5}$', val_34):
                 padded[34] = _format_date_val(val_34)
             return padded

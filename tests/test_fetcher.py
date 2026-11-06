@@ -390,5 +390,54 @@ def test_high_rise_numeric_unit_code_composition():
     assert parsed[0]["status"] == "Còn hàng"
 
 
+def test_mgc_headers_don_gia_tts_and_gia_tdc_preserve_total_price():
+    # Kiểm tra bảng hàng MGC có cả 'Đơn giá TTS', 'GIÁ CHƯA VAT VÀ KPBT', 'Giá Vay NH', 'Giá TĐC', 'Giá TTS'
+    headers = [
+        "STT", "TÒA", "Mã căn", "Loại căn", "Hướng", "View", "DT thông thủy",
+        "Đơn giá TTS", "GIÁ CHƯA  VAT VÀ KPBT", "Giá Vay NH\n(tạm tính)",
+        "Giá TĐC\n(tạm tính)", "Giá TTS\n(tạm tính)"
+    ]
+    col_map = map_columns_from_headers(headers)
+    assert col_map["don_gia_m2"] == 7
+    assert col_map["gia_chua_vat"] == 8
+    assert col_map["gia_vay"] == 9
+    assert col_map["gia_tttd"] == 10
+    assert col_map["gia_tts"] == 11
+
+    grid_rows = [
+        [{"formattedValue": h} for h in headers],
+        [
+            {"formattedValue": "1"},
+            {"formattedValue": "L1"},
+            {"formattedValue": "C5L1-21-02"},
+            {"formattedValue": "2BR+"},
+            {"formattedValue": ""},
+            {"formattedValue": ""},
+            {"formattedValue": "72,8"},
+            {"formattedValue": "71.493.912"},
+            {"formattedValue": "5.511.588.468"},
+            {"formattedValue": "6.149.774.186"},
+            {"formattedValue": "5.753.119.229"},
+            {"formattedValue": "5.204.756.829"},
+        ]
+    ]
+    parsed = parse_agency_grid_data(
+        grid_rows,
+        agency_name="Vhub",
+        project_key="MGC",
+        is_low_rise=False,
+        existing_pool_keys=set(),
+        today_str="06/11/2026"
+    )
+    assert len(parsed) == 1
+    row_vals = parsed[0]["row_values"]
+    assert row_vals[13] == 5_511_588_468  # Giá chưa VAT
+    assert row_vals[14] == 5_753_119_229  # Giá full fallback từ Giá TĐC (không bị ghi đè bởi Đơn giá TTS)
+    assert row_vals[16] == 5_753_119_229  # Giá TTTĐ
+    assert row_vals[17] == 5_204_756_829  # Giá TTS
+    assert row_vals[18] == 71_493_912     # Đơn giá / m²
+
+
+
 
 

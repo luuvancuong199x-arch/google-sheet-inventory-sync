@@ -237,3 +237,14 @@ def test_realign_legacy_row():
     assert res_atd[36] == ''
     assert res_atd[37] == 'https://drive/img2'
     assert res_atd[38] == 'https://drive/img3'
+
+    # 5. Dòng từ định dạng trước không có link ảnh (col 33-35 trống, Đại lý ở 36, Ngày ở 37)
+    prev_no_img = [''] * 30 + ['TTĐC', 'Còn hàng', 'Quỹ độc quyền', '', '', '', 'VHUB', '46331', '']
+    res_no_img = realign_legacy_row(prev_no_img, is_low_rise=True)
+    assert res_no_img[31] == 'Còn hàng'
+    assert res_no_img[32] == 'Quỹ độc quyền'
+    assert res_no_img[33] == 'VHUB'
+    assert res_no_img[34] == '05/11/2026'
+    assert res_no_img[36] == ''
+    assert res_no_img[37] == ''
+

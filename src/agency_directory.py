@@ -491,21 +491,43 @@ def compute_project_stats_from_sheet(
         try:
             r = _execute_with_retry(sheets_service.spreadsheets().values().get(
                 spreadsheetId=spreadsheet_id,
-                range=f"'{tab}'!A1:AN15000"
+                range=f"'{tab}'!A1:AZ15000"
             ))
             rows = r.get('values', [])
             if len(rows) < 2:
                 continue
 
+            # Tự động nhận diện index các cột từ dòng Tiêu đề (Row 1)
+            tab_agency_idx = agency_col_idx
+            tab_status_idx = status_col_idx
+            tab_issue_idx = issue_date_col_idx
+            tab_expiry_idx = expiry_col_idx
+
+            header_row = [str(h).strip().lower() for h in rows[0]]
+            for idx, h in enumerate(header_row):
+                if 'đại lý' in h or 'dai ly' in h:
+                    tab_agency_idx = idx
+                elif 'trạng thái' in h or 'trang thai' in h:
+                    tab_status_idx = idx
+                elif 'ngày cấp' in h or 'ngay cap' in h:
+                    tab_issue_idx = idx
+                elif 'hạn cấp' in h or 'han cap' in h:
+                    tab_expiry_idx = idx
+
             for row in rows[1:]:
-                ag_raw = row[agency_col_idx] if len(row) > agency_col_idx else ''
+                ag_raw = row[tab_agency_idx] if len(row) > tab_agency_idx else ''
                 clean_ag = extract_clean_agency_name(ag_raw).strip().upper()
                 if not clean_ag:
                     continue
 
-                st = row[status_col_idx] if len(row) > status_col_idx else ''
-                issue_d = row[issue_date_col_idx] if len(row) > issue_date_col_idx else ''
-                exp_v = row[expiry_col_idx] if len(row) > expiry_col_idx else ''
+                st = (row[tab_status_idx] if len(row) > tab_status_idx else '').strip()
+                st_lower = st.lower()
+                issue_d = (row[tab_issue_idx] if len(row) > tab_issue_idx else '').strip()
+                exp_v = (row[tab_expiry_idx] if len(row) > tab_expiry_idx else '').strip()
+
+                is_avail = bool('còn' in st_lower or 'con' in st_lower)
+                is_lock = bool('lock' in st_lower)
+                is_sold = bool('bán' in st_lower or 'ban' in st_lower or 'sold' in st_lower)
 
                 for k in [(clean_ag, (tab or '').strip().upper()), clean_ag]:
                     if k not in agency_stats:
@@ -514,28 +536,28 @@ def compute_project_stats_from_sheet(
                             "expiring_soon": 0, "avail": 0, "lock": 0, "sold": 0
                         }
                     agency_stats[k]["total_units"] += 1
-                    if st == 'Còn hàng':
+                    if is_avail:
                         agency_stats[k]["avail"] += 1
-                    elif st == 'Đang lock':
+                    elif is_lock:
                         agency_stats[k]["lock"] += 1
-                    elif st == 'Đã bán':
+                    elif is_sold:
                         agency_stats[k]["sold"] += 1
 
                     if today_str and issue_d == today_str:
                         agency_stats[k]["new_today"] += 1
-                    if st in ['Còn hàng', 'Đang lock'] and '⚠️ Sắp hết hạn' in str(exp_v):
+                    if (is_avail or is_lock) and 'sắp hết hạn' in exp_v.lower():
                         agency_stats[k]["expiring_soon"] += 1
 
                 project_stats["total_units"] += 1
-                if st == 'Còn hàng':
+                if is_avail:
                     project_stats["avail"] += 1
-                elif st == 'Đang lock':
+                elif is_lock:
                     project_stats["lock"] += 1
-                elif st == 'Đã bán':
+                elif is_sold:
                     project_stats["sold"] += 1
                 if today_str and issue_d == today_str:
                     project_stats["new_today"] += 1
-                if st in ['Còn hàng', 'Đang lock'] and '⚠️ Sắp hết hạn' in str(exp_v):
+                if (is_avail or is_lock) and 'sắp hết hạn' in exp_v.lower():
                     project_stats["expiring_soon"] += 1
         except Exception as e:
             logger.warning(f"Lỗi khi đọc thống kê từ tab {tab}: {e}")

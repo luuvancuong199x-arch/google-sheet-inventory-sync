@@ -114,3 +114,55 @@ def test_update_project_agency_directory_mock():
     assert homeplus_row[10] == 1  # lock (Lock)
     assert homeplus_row[11] == 1  # sold (Đã bán)
     assert homeplus_row[12] == 10 # total_units (Tổng số căn)
+
+def test_compute_project_stats_dynamic_headers():
+    from src.agency_directory import compute_project_stats_from_sheet
+
+    mock_service = MagicMock()
+    mock_values = mock_service.spreadsheets.return_value.values.return_value
+    
+    # Header where Trạng thái is at col 34, Đại lý at col 36
+    header = [f"Col{i}" for i in range(40)]
+    header[34] = "Trạng thái"
+    header[36] = "Đại lý"
+    header[37] = "Ngày cấp hàng"
+    header[38] = "Hạn cấp hàng (Còn lại)"
+
+    row1 = ["" for _ in range(40)]
+    row1[34] = "Còn hàng"
+    row1[36] = "HOMEPLUS"
+    row1[37] = "06/11/2026"
+    row1[38] = "⚠️ Sắp hết hạn"
+
+    row2 = ["" for _ in range(40)]
+    row2[34] = "Đã bán"
+    row2[36] = "HOMEPLUS"
+
+    row3 = ["" for _ in range(40)]
+    row3[34] = "Đang lock"
+    row3[36] = "Vhub"
+
+    mock_values.get.return_value.execute.return_value = {
+        "values": [header, row1, row2, row3]
+    }
+
+    stats = compute_project_stats_from_sheet(
+        mock_service,
+        "dummy_sheet_id",
+        {"type": "LOW_RISE", "id": "dummy"},
+        today_str="06/11/2026"
+    )
+
+    ps = stats["project_stats"]
+    assert ps["total_units"] == 3
+    assert ps["avail"] == 1
+    assert ps["lock"] == 1
+    assert ps["sold"] == 1
+    assert ps["new_today"] == 1
+    assert ps["expiring_soon"] == 1
+
+    ags = stats["agency_stats"]
+    assert ags["HOMEPLUS"]["avail"] == 1
+    assert ags["HOMEPLUS"]["sold"] == 1
+    assert ags["VHUB"]["lock"] == 1
+

@@ -4,11 +4,27 @@ Hỗ trợ cả bảng phân phối thông thường (1 cột link) và bảng M
 """
 
 import re
+import time
 import logging
 from typing import List, Dict, Optional, Any
 from src.config import MASTER_SPREADSHEET_ID
 
 logger = logging.getLogger(__name__)
+
+def _execute_api_call(request_call, max_retries=4):
+    """Thực thi Google API request kèm cơ chế tự động chờ (Backoff) khi chạm quota 429."""
+    for attempt in range(max_retries):
+        try:
+            return request_call.execute()
+        except Exception as e:
+            err_str = str(e)
+            if ("429" in err_str or "RATE_LIMIT_EXCEEDED" in err_str) and attempt < max_retries - 1:
+                wait_time = 15 * (attempt + 1)
+                logger.warning(f"Chạm giới hạn tần suất Google API (429). Tự động chờ {wait_time}s trước khi thử lại (lần {attempt+1}/{max_retries})...")
+                time.sleep(wait_time)
+                continue
+            raise e
+    return request_call.execute()
 
 def parse_spreadsheet_url_and_gids(raw_url: str) -> List[Dict[str, Any]]:
     """
@@ -180,11 +196,11 @@ def get_agency_links_from_target_sheet(
     Hỗ trợ nhận diện 'Quỹ chung' (is_general_pool=True) và trích xuất đúng GID.
     """
     try:
-        resp = sheets_service.spreadsheets().values().get(
+        resp = _execute_api_call(sheets_service.spreadsheets().values().get(
             spreadsheetId=spreadsheet_id,
             range="'Danh mục Link Đại lý'!A6:D250",
             valueRenderOption='FORMATTED_VALUE'
-        ).execute()
+        ))
         rows = resp.get('values', [])
         if not rows:
             return []
@@ -251,11 +267,11 @@ def get_project_agency_links(
     sub_filter = sub_tab or (p_upper if p_upper in ('MGC', 'MEL', 'HSG', 'LEP') else None)
     try:
         range_name = f"'{master_tab_key}'!A1:Z500"
-        resp = sheets_service.spreadsheets().values().get(
+        resp = _execute_api_call(sheets_service.spreadsheets().values().get(
             spreadsheetId=MASTER_SPREADSHEET_ID,
             range=range_name,
             valueRenderOption='FORMATTED_VALUE'
-        ).execute()
+        ))
 
         rows = resp.get('values', [])
         return parse_master_sheet_rows(rows, master_tab_key, sub_tab_filter=sub_filter)

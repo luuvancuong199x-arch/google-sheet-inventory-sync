@@ -195,35 +195,45 @@ def test_normalize_price_rejects_dates_and_extreme_m2():
     assert normalize_price_to_vnd("75.5 triệu/m2", unit_hint="M2") == 75_500_000
 
 def test_realign_legacy_row():
-    # 1. Row already canonical: col 31 is status, col 32 is fund group
-    canonical_row = [''] * 30 + ['Ghi chu', 'Còn hàng', 'Quỹ chéo', 'https://img1', '', 'https://img3', 'BHOMES', '05/11/2026', 'Còn 29 ngày']
-    res_canon = realign_legacy_row(canonical_row, is_low_rise=True)
+    # 1. Cấu trúc mới Phương án 2 (Trạng thái -> Nhóm quỹ -> Đại lý -> Ngày cấp -> Hạn cấp -> 3 Ảnh ở cuối)
+    canonical_pa2 = [''] * 30 + ['Ghi chu', 'Còn hàng', 'Quỹ chéo', 'BHOMES', '05/11/2026', 'Còn 29 ngày', 'https://img1', '', 'https://img3']
+    res_canon = realign_legacy_row(canonical_pa2, is_low_rise=True)
     assert res_canon[31] == 'Còn hàng'
     assert res_canon[32] == 'Quỹ chéo'
-    assert res_canon[33] == 'https://img1'
-    assert res_canon[36] == 'BHOMES'
+    assert res_canon[33] == 'BHOMES'
+    assert res_canon[34] == '05/11/2026'
+    assert res_canon[35] == 'Còn 29 ngày'
+    assert res_canon[36] == 'https://img1'
+    assert res_canon[38] == 'https://img3'
 
-    # 2. Legacy Layout Sub-case A (QCBEST in HLX): col 33 is agency, col 34 is status, col 35 is fund group, col 36 is date
+    # 2. Dòng từ định dạng trước (Ảnh ở 33-35, Đại lý ở 36, Ngày ở 37, Hạn ở 38)
+    prev_layout_row = [''] * 30 + ['Ghi chu', 'Còn hàng', 'Quỹ chéo', 'https://img1', '', 'https://img3', 'BHOMES', '05/11/2026', 'Còn 29 ngày']
+    res_prev = realign_legacy_row(prev_layout_row, is_low_rise=True)
+    assert res_prev[31] == 'Còn hàng'
+    assert res_prev[32] == 'Quỹ chéo'
+    assert res_prev[33] == 'BHOMES'
+    assert res_prev[34] == '05/11/2026'
+    assert res_prev[35] == 'Còn 29 ngày'
+    assert res_prev[36] == 'https://img1'
+    assert res_prev[38] == 'https://img3'
+
+    # 3. Dòng legacy sâu (col 34 là Trạng thái): QCBEST cũ
     legacy_qc = [''] * 30 + ['', 'https://drive/folder', '', 'QCBEST', 'Còn hàng', 'Quỹ chung', '6/10/2026', '', '']
     res_qc = realign_legacy_row(legacy_qc, is_low_rise=True)
     assert res_qc[31] == 'Còn hàng'
     assert res_qc[32] == 'Quỹ chung'
-    assert res_qc[33] == 'https://drive/folder'
-    assert res_qc[36] == 'QCBEST'
-    assert res_qc[37] == '6/10/2026'
+    assert res_qc[33] == 'QCBEST'
+    assert res_qc[34] == '6/10/2026'
+    assert res_qc[36] == 'https://drive/folder'
 
-    # 3. Legacy Layout Sub-case B (ATD HOMES in HLX, VHUB in Duong Kinh, O2O in OCP2-3):
-    # col 31-33 images, col 34 status, col 35 fund group, col 36 agency
+    # 4. Dòng legacy sâu: ATD HOMES cũ
     legacy_atd = [''] * 30 + ['', '', 'https://drive/img2', 'https://drive/img3', 'Còn hàng', 'Quỹ chéo', 'ATD HOMES', '04/11/2026', 'Còn 28 ngày']
     res_atd = realign_legacy_row(legacy_atd, is_low_rise=True)
     assert res_atd[31] == 'Còn hàng'
     assert res_atd[32] == 'Quỹ chéo'
-    assert res_atd[33] == ''
-    assert res_atd[34] == 'https://drive/img2'
-    assert res_atd[35] == 'https://drive/img3'
-    assert res_atd[36] == 'ATD HOMES'
-    assert res_atd[37] == '04/11/2026'
-    assert res_atd[38] == 'Còn 28 ngày'
-
-
-
+    assert res_atd[33] == 'ATD HOMES'
+    assert res_atd[34] == '04/11/2026'
+    assert res_atd[35] == 'Còn 28 ngày'
+    assert res_atd[36] == ''
+    assert res_atd[37] == 'https://drive/img2'
+    assert res_atd[38] == 'https://drive/img3'

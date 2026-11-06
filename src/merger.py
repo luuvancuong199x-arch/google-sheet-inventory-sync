@@ -35,7 +35,7 @@ def make_sort_key(row: List[Any], is_low_rise: bool) -> tuple:
     - Cấp 3: Trong từng Đại lý/Quỹ chung: Trạng thái (1: Còn hàng, 2: Đang lock, 3: Đã bán, 4: Khác)
     - Cấp 4: Trong cùng trạng thái: Mã căn A-Z (natural sort)
     """
-    agency_col_idx = 36 if is_low_rise else 29
+    agency_col_idx = 33 if is_low_rise else 29
     status_col_idx = 31 if is_low_rise else 27
     unit_code_col_idx = 2 if is_low_rise else 1
 
@@ -119,9 +119,9 @@ def smart_upsert_pool(
     """
     target_len = 39 if is_low_rise else 32
     status_col_idx = 31 if is_low_rise else 27
-    issue_date_col_idx = 37 if is_low_rise else 30
-    expiry_col_idx = 38 if is_low_rise else 31
-    agency_col_idx = 36 if is_low_rise else 29
+    issue_date_col_idx = 34 if is_low_rise else 30
+    expiry_col_idx = 35 if is_low_rise else 31
+    agency_col_idx = 33 if is_low_rise else 29
 
     # 1. Deduplicate các căn vừa quét trong đợt này theo xếp hạng thẩm quyền
     best_scanned_by_key = {}

@@ -476,10 +476,10 @@ def compute_project_stats_from_sheet(
         sub_tabs = cfg['sub_tabs']
     else:
         sub_tabs = ['Bảng hàng chuẩn hóa']
-    agency_col_idx = 36 if is_low_rise else 29
+    agency_col_idx = 33 if is_low_rise else 29
     status_col_idx = 31 if is_low_rise else 27
-    issue_date_col_idx = 37 if is_low_rise else 30
-    expiry_col_idx = 38 if is_low_rise else 31
+    issue_date_col_idx = 34 if is_low_rise else 30
+    expiry_col_idx = 35 if is_low_rise else 31
 
     agency_stats = {}
     project_stats = {

@@ -91,7 +91,7 @@ TARGET_PROJECTS = {
     }
 }
 
-# Tiêu chuẩn 39 cột chuẩn Thấp tầng (36 cột gốc + Cột 37 Đại lý, Cột 38 Ngày cấp hàng, Cột 39 Hạn cấp hàng)
+# Tiêu chuẩn 39 cột chuẩn Thấp tầng (Trạng thái - Nhóm quỹ - Đại lý liền nhau, Hạn cấp hàng, 3 cột Ảnh ở cuối)
 LOW_RISE_HEADERS = [
     'STT', 'Phân khu', 'Mã căn', 'TCBG', 'Loại hình', 'Diện tích đất', 'Diện tích xây dựng',
     'Giá chưa gồm VAT', 'VAT', 'KPBT', 'Giá gồm VAT và KPBT',
@@ -100,8 +100,8 @@ LOW_RISE_HEADERS = [
     'Đơn giá / m²', 'Giá vay', 'Giá thanh toán theo tiến độ', 'Giá thanh toán sớm',
     'Hướng', 'Chiều rộng mặt tiền', 'Số tầng', 'Quà tặng', 'Mô tả', 'CSBH áp dụng',
     'Ngân hàng hỗ trợ giải ngân', 'Ghi chú', 'Trạng thái', 'Nhóm quỹ',
-    'Ảnh chỉ căn', 'Ảnh phiếu tính giá', 'Ẩnh chỉ căn+ PTG',
-    'Đại lý', 'Ngày cấp hàng', 'Hạn cấp hàng (Còn lại)'
+    'Đại lý', 'Ngày cấp hàng', 'Hạn cấp hàng (Còn lại)',
+    'Ảnh chỉ căn', 'Ảnh phiếu tính giá', 'Ẩnh chỉ căn+ PTG'
 ]
 
 # Tiêu chuẩn 32 cột chuẩn Cao tầng (30 cột gốc + Cột 31 Ngày cấp hàng, Cột 32 Hạn cấp hàng)

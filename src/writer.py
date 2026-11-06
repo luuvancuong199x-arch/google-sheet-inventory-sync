@@ -213,7 +213,7 @@ def write_normalized_inventory(
 
         # Cột Trạng thái: Căn giữa, Danh sách chọn (Dropdown list), và Quy tắc thẻ màu (Xanh lá - Cam - Đỏ)
         status_col_idx = 31 if is_low_rise else 27
-        expiry_col_idx = 38 if is_low_rise else 31
+        expiry_col_idx = 35 if is_low_rise else 31
 
         requests.append({
             "repeatCell": {
@@ -252,6 +252,21 @@ def write_normalized_inventory(
             }
         })
 
+        # 1. Dọn dẹp Data Validation cũ trên các cột lân cận (tránh lỗi popup Không hợp lệ)
+        requests.append({
+            "setDataValidation": {
+                "range": {
+                    "sheetId": sheet_id,
+                    "startRowIndex": 1,
+                    "endRowIndex": len(all_values),
+                    "startColumnIndex": status_col_idx + 1,
+                    "endColumnIndex": status_col_idx + 8
+                },
+                "rule": None
+            }
+        })
+
+        # 2. Dropdown cho cột Trạng thái
         requests.append({
             "setDataValidation": {
                 "range": {
@@ -268,6 +283,33 @@ def write_normalized_inventory(
                             {"userEnteredValue": "Còn hàng"},
                             {"userEnteredValue": "Đang lock"},
                             {"userEnteredValue": "Đã bán"}
+                        ]
+                    },
+                    "showCustomUi": True,
+                    "strict": False
+                }
+            }
+        })
+
+        # 3. Dropdown cho cột Nhóm quỹ (không bắt buộc / strict: False)
+        fund_col_idx = status_col_idx + 1
+        requests.append({
+            "setDataValidation": {
+                "range": {
+                    "sheetId": sheet_id,
+                    "startRowIndex": 1,
+                    "endRowIndex": len(all_values),
+                    "startColumnIndex": fund_col_idx,
+                    "endColumnIndex": fund_col_idx + 1
+                },
+                "rule": {
+                    "condition": {
+                        "type": "ONE_OF_LIST",
+                        "values": [
+                            {"userEnteredValue": "Quỹ chung"},
+                            {"userEnteredValue": "Quỹ độc quyền"},
+                            {"userEnteredValue": "Quỹ chéo"},
+                            {"userEnteredValue": "Quỹ ngoại giao"}
                         ]
                     },
                     "showCustomUi": True,

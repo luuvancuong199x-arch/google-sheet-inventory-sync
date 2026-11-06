@@ -83,12 +83,12 @@ def test_map_low_rise_row_to_db_record():
     row[30] = "TTĐC"
     row[31] = "Còn hàng"
     row[32] = "Quỹ độc quyền"
-    row[33] = "https://drive.google.com/file/d/img1/view"
-    row[34] = '=HYPERLINK("https://drive.google.com/file/d/ptg1/view", "Xem PTG")'
-    row[35] = "https://drive.google.com/file/d/combo1/view"
-    row[36] = '=HYPERLINK("https://docs.google.com/spreadsheets/d/123", "VHS")'
-    row[37] = "01/11/2026"
-    row[38] = "Còn 27 ngày (Đã bán 3 ngày)"
+    row[33] = '=HYPERLINK("https://docs.google.com/spreadsheets/d/123", "VHS")'
+    row[34] = "01/11/2026"
+    row[35] = "Còn 27 ngày (Đã bán 3 ngày)"
+    row[36] = "https://drive.google.com/file/d/img1/view"
+    row[37] = '=HYPERLINK("https://drive.google.com/file/d/ptg1/view", "Xem PTG")'
+    row[38] = "https://drive.google.com/file/d/combo1/view"
 
     rec = map_merged_row_to_db_record(
         row=row,

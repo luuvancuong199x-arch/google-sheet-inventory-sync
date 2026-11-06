@@ -553,7 +553,7 @@ def parse_agency_grid_data(
             clean_agency = agency_name.strip()
             agency_cell_val = f'=HYPERLINK("{agency_url}"; "{clean_agency}")' if agency_url else clean_agency
 
-            # Khớp chính xác 39 cột chuẩn Thấp tầng (thêm cột 39 Hạn cấp hàng)
+            # Khớp chính xác 39 cột chuẩn Thấp tầng (Trạng thái, Nhóm quỹ, Đại lý liền nhau, Ảnh ở cuối)
             row_values = [
                 0, resolved_zone, unit_code, raw_tcbg, unit_type, land_area, build_area,
                 gia_chua_vat, vat_tong, kpbt, gia_full,
@@ -562,8 +562,8 @@ def parse_agency_grid_data(
                 don_gia_m2, gia_vay, gia_tttd, gia_tts,
                 direction, frontage, floors, gift, desc, csbh_dict['csbh_date'],
                 bank, note, resolved_status, fund_group,
-                media['anh_chi_can'], media['anh_ptg'], media['anh_chi_can_ptg'],
-                agency_cell_val, issue_date, expiry_display
+                agency_cell_val, issue_date, expiry_display,
+                media['anh_chi_can'], media['anh_ptg'], media['anh_chi_can_ptg']
             ]
         else:
             raw_type = get_val(row, cm['unit_type']).strip()

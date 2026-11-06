@@ -61,14 +61,14 @@ def test_unpriced_agency_cannot_overwrite_priced_agency_with_sold():
             "unit_key": "LK-10",
             "is_exclusive": False,
             "status": "Còn hàng",
-            "row_values": [0, "Khu A", "LK-10", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng"] + [""] * 4 + ["Agency A", "03/11/2026"]
+            "row_values": [0, "Khu A", "LK-10", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng"] + [""] + ["Agency A", "03/11/2026"] + [""] * 3
         },
         # Agency B lists LK-10 but has NO prices, so it got status 'Đã bán' due to missing price
         {
             "unit_key": "LK-10",
             "is_exclusive": False,
             "status": "Đã bán",
-            "row_values": [0, "Khu A", "LK-10", "Thô", "LK", 100, 200, ""] + [""] * 23 + ["Đã bán"] + [""] * 4 + ["Agency B", "03/11/2026"]
+            "row_values": [0, "Khu A", "LK-10", "Thô", "LK", 100, 200, ""] + [""] * 23 + ["Đã bán"] + [""] + ["Agency B", "03/11/2026"] + [""] * 3
         }
     ]
 
@@ -77,7 +77,7 @@ def test_unpriced_agency_cannot_overwrite_priced_agency_with_sold():
     # Must preserve Agency A's Còn hàng status and price!
     assert final_rows[0][31] == "Còn hàng"
     assert final_rows[0][7] == 5000000000
-    assert final_rows[0][36] == "Agency A"
+    assert final_rows[0][33] == "Agency A"
 
 def test_smart_upsert_purges_obsolete_rows_from_successful_agency():
     # If Agency A had old phantom unit 'LK-99' in existing_pool,
@@ -88,11 +88,11 @@ def test_smart_upsert_purges_obsolete_rows_from_successful_agency():
         "LK-99": {
             "unit_key": "LK-99",
             # Agency is col 36 for low rise
-            "row_values": [1, "Khu A", "LK-99"] + [""] * 33 + ["Agency A"] + [""] * 5
+            "row_values": [1, "Khu A", "LK-99"] + [""] * 30 + ["Agency A"] + [""] * 5
         },
         "LK-88": {
             "unit_key": "LK-88",
-            "row_values": [2, "Khu A", "LK-88"] + [""] * 33 + ["Agency B"] + [""] * 5
+            "row_values": [2, "Khu A", "LK-88"] + [""] * 30 + ["Agency B"] + [""] * 5
         }
     }
     scanned_units = [
@@ -100,7 +100,7 @@ def test_smart_upsert_purges_obsolete_rows_from_successful_agency():
             "unit_key": "LK-01",
             "is_exclusive": False,
             "status": "Còn hàng",
-            "row_values": [0, "Khu A", "LK-01"] + [""] * 33 + ["Agency A"] + [""] * 5
+            "row_values": [0, "Khu A", "LK-01"] + [""] * 30 + ["Agency A"] + [""] * 5
         }
     ]
 
@@ -125,38 +125,38 @@ def test_sorting_by_agency_status_unit_code():
             "unit_key": "B-03",
             "is_exclusive": False,
             "status": "Đã bán",
-            "row_values": [0, "Khu B", "B-03", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Đã bán"] + [""] * 4 + ['=HYPERLINK("http://b", "Agency B")', "03/11/2026"]
+            "row_values": [0, "Khu B", "B-03", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Đã bán"] + [""] + ['=HYPERLINK("http://b", "Agency B")', "03/11/2026"] + [""] * 3
         },
         {
             "unit_key": "B-01",
             "is_exclusive": False,
             "status": "Còn hàng",
-            "row_values": [0, "Khu B", "B-01", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng"] + [""] * 4 + ['=HYPERLINK("http://b", "Agency B")', "03/11/2026"]
+            "row_values": [0, "Khu B", "B-01", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng"] + [""] + ['=HYPERLINK("http://b", "Agency B")', "03/11/2026"] + [""] * 3
         },
         {
             "unit_key": "B-02",
             "is_exclusive": False,
             "status": "Đang lock",
-            "row_values": [0, "Khu B", "B-02", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Đang lock"] + [""] * 4 + ['=HYPERLINK("http://b", "Agency B")', "03/11/2026"]
+            "row_values": [0, "Khu B", "B-02", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Đang lock"] + [""] + ['=HYPERLINK("http://b", "Agency B")', "03/11/2026"] + [""] * 3
         },
         # Agency A units
         {
             "unit_key": "A-03",
             "is_exclusive": False,
             "status": "Đã bán",
-            "row_values": [0, "Khu A", "A-03", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Đã bán"] + [""] * 4 + ["Agency A", "03/11/2026"]
+            "row_values": [0, "Khu A", "A-03", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Đã bán"] + [""] + ["Agency A", "03/11/2026"] + [""] * 3
         },
         {
             "unit_key": "A-02",
             "is_exclusive": False,
             "status": "Đang lock",
-            "row_values": [0, "Khu A", "A-02", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Đang lock"] + [""] * 4 + ["Agency A", "03/11/2026"]
+            "row_values": [0, "Khu A", "A-02", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Đang lock"] + [""] + ["Agency A", "03/11/2026"] + [""] * 3
         },
         {
             "unit_key": "A-01",
             "is_exclusive": False,
             "status": "Còn hàng",
-            "row_values": [0, "Khu A", "A-01", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng"] + [""] * 4 + ["Agency A", "03/11/2026"]
+            "row_values": [0, "Khu A", "A-01", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng"] + [""] + ["Agency A", "03/11/2026"] + [""] * 3
         },
     ]
 
@@ -186,15 +186,15 @@ def test_smart_upsert_pool_expiry_and_daily_stats():
     existing_pool = {
         "LK-01": {
             "unit_key": "LK-01",
-            "row_values": [1, "Khu A", "LK-01", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng"] + [""] * 4 + ["Agency A", d29_str]
+            "row_values": [1, "Khu A", "LK-01", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng"] + [""] + ["Agency A", d29_str] + [""] * 3
         },
         "LK-02": {
             "unit_key": "LK-02",
-            "row_values": [2, "Khu A", "LK-02", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng"] + [""] * 4 + ["Agency A", "01/10/2026"]
+            "row_values": [2, "Khu A", "LK-02", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng"] + [""] + ["Agency A", "01/10/2026"] + [""] * 3
         },
         "LK-03": {
             "unit_key": "LK-03",
-            "row_values": [3, "Khu B", "LK-03", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng"] + [""] * 4 + ["Agency B", "24/10/2026"]
+            "row_values": [3, "Khu B", "LK-03", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng"] + [""] + ["Agency B", "24/10/2026"] + [""] * 3
         }
     }
 
@@ -207,19 +207,19 @@ def test_smart_upsert_pool_expiry_and_daily_stats():
             "unit_key": "LK-01",
             "is_exclusive": False,
             "status": "Còn hàng",
-            "row_values": [0, "Khu A", "LK-01", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng"] + [""] * 4 + ["Agency A", d29_str]
+            "row_values": [0, "Khu A", "LK-01", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng"] + [""] + ["Agency A", d29_str] + [""] * 3
         },
         {
             "unit_key": "LK-02",
             "is_exclusive": False,
             "status": "Đã bán",
-            "row_values": [0, "Khu A", "LK-02", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Đã bán"] + [""] * 4 + ["Agency A", "01/10/2026"]
+            "row_values": [0, "Khu A", "LK-02", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Đã bán"] + [""] + ["Agency A", "01/10/2026"] + [""] * 3
         },
         {
             "unit_key": "LK-04",
             "is_exclusive": False,
             "status": "Còn hàng",
-            "row_values": [0, "Khu A", "LK-04", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng"] + [""] * 4 + ["Agency A", today_str]
+            "row_values": [0, "Khu A", "LK-04", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng"] + [""] + ["Agency A", today_str] + [""] * 3
         }
     ]
 
@@ -235,13 +235,13 @@ def test_smart_upsert_pool_expiry_and_daily_stats():
     # Check row length is 39 for all rows
     assert all(len(r) == 39 for r in final_rows)
 
-    # LK-01 should have expiry warning at col 38
+    # LK-01 should have expiry warning at col 35
     lk01_row = next(r for r in final_rows if r[2] == "LK-01")
-    assert "⚠️ Sắp hết hạn" in lk01_row[38]
+    assert "⚠️ Sắp hết hạn" in lk01_row[35]
 
-    # Preserved LK-03 should also have expiry computed at col 38
+    # Preserved LK-03 should also have expiry computed at col 35
     lk03_row = next(r for r in final_rows if r[2] == "LK-03")
-    assert "Còn" in lk03_row[38]
+    assert "Còn" in lk03_row[35]
 
     # Verify daily stats
     p_stats = stats["project_stats"]
@@ -267,7 +267,7 @@ def test_exclusive_agency_available_cannot_be_overwritten_by_general_sold():
             "agency_name": "Agency B",
             "is_exclusive": False,
             "status": "Đã bán",
-            "row_values": [0, "Khu A", "LK-20", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Đã bán", "Quỹ chung"] + [""] * 3 + ["Agency B", "03/11/2026", "Còn 30 ngày"]
+            "row_values": [0, "Khu A", "LK-20", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Đã bán", "Quỹ chung"] + ["Agency B", "03/11/2026", "Còn 30 ngày"] + [""] * 3
         },
         # Agency A (Độc quyền) scanned second
         {
@@ -275,7 +275,7 @@ def test_exclusive_agency_available_cannot_be_overwritten_by_general_sold():
             "agency_name": "Agency A",
             "is_exclusive": True,
             "status": "Còn hàng",
-            "row_values": [0, "Khu A", "LK-20", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng", "Độc quyền"] + [""] * 3 + ["Agency A", "03/11/2026", "Còn 30 ngày"]
+            "row_values": [0, "Khu A", "LK-20", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng", "Độc quyền"] + ["Agency A", "03/11/2026", "Còn 30 ngày"] + [""] * 3
         }
     ]
 
@@ -287,7 +287,7 @@ def test_exclusive_agency_available_cannot_be_overwritten_by_general_sold():
     # Status MUST remain Còn hàng
     assert row[31] == "Còn hàng"
     # Agency MUST be Agency A
-    assert row[36] == "Agency A"
+    assert row[33] == "Agency A"
     # Nhóm quỹ MUST be Độc quyền
     assert row[32] == "Độc quyền"
 
@@ -300,32 +300,32 @@ def test_make_sort_key_quy_chung_at_the_bottom():
             "agency_name": "Quỹ chung",
             "is_exclusive": False,
             "status": "Còn hàng",
-            "row_values": [0, "Khu A", "LK-01", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng", "Quỹ chung"] + [""] * 3 + ["Quỹ chung", "04/11/2026", "Còn 30 ngày"]
+            "row_values": [0, "Khu A", "LK-01", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng", "Quỹ chung"] + ["Quỹ chung", "04/11/2026", "Còn 30 ngày"] + [""] * 3
         },
         {
             "unit_key": "LK-02",
             "agency_name": "VHS",
             "is_exclusive": True,
             "status": "Còn hàng",
-            "row_values": [0, "Khu A", "LK-02", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng", "Độc quyền"] + [""] * 3 + ["VHS", "04/11/2026", "Còn 30 ngày"]
+            "row_values": [0, "Khu A", "LK-02", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng", "Độc quyền"] + ["VHS", "04/11/2026", "Còn 30 ngày"] + [""] * 3
         },
         {
             "unit_key": "LK-03",
             "agency_name": "BHS",
             "is_exclusive": True,
             "status": "Còn hàng",
-            "row_values": [0, "Khu A", "LK-03", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng", "Độc quyền"] + [""] * 3 + ["BHS", "04/11/2026", "Còn 30 ngày"]
+            "row_values": [0, "Khu A", "LK-03", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng", "Độc quyền"] + ["BHS", "04/11/2026", "Còn 30 ngày"] + [""] * 3
         }
     ]
 
     final_rows = smart_upsert_pool({}, scanned_units, is_low_rise=True)
     assert len(final_rows) == 3
     # Row 0: Quỹ chung (hiển thị đầu bảng theo quy tắc mới)
-    assert final_rows[0][36] == "Quỹ chung"
+    assert final_rows[0][33] == "Quỹ chung"
     # Row 1: BHS
-    assert final_rows[1][36] == "BHS"
+    assert final_rows[1][33] == "BHS"
     # Row 2: VHS
-    assert final_rows[2][36] == "VHS"
+    assert final_rows[2][33] == "VHS"
 
 def test_reallocation_when_exclusive_expired():
     from datetime import date, timedelta
@@ -337,7 +337,7 @@ def test_reallocation_when_exclusive_expired():
     existing_pool = {
         "LK-99": {
             "unit_key": "LK-99",
-            "row_values": [1, "Khu A", "LK-99", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng", "Độc quyền"] + [""] * 3 + ["Agency A", d40_ago_str, "⛔ Đã hết hạn (Quá 10 ngày)"]
+            "row_values": [1, "Khu A", "LK-99", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng", "Độc quyền"] + ["Agency A", d40_ago_str, "⛔ Đã hết hạn (Quá 10 ngày)"] + [""] * 3
         }
     }
 
@@ -348,7 +348,7 @@ def test_reallocation_when_exclusive_expired():
             "agency_name": "Agency B",
             "is_exclusive": True,
             "status": "Còn hàng",
-            "row_values": [0, "Khu A", "LK-99", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng", "Độc quyền"] + [""] * 3 + ["Agency B", "", ""]
+            "row_values": [0, "Khu A", "LK-99", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng", "Độc quyền"] + ["Agency B", "", ""] + [""] * 3
         }
     ]
 
@@ -357,11 +357,11 @@ def test_reallocation_when_exclusive_expired():
     row = final_rows[0]
     assert row[2] == "LK-99"
     # Agency transferred to Agency B
-    assert row[36] == "Agency B"
+    assert row[33] == "Agency B"
     # Issue date reset to today_str!
-    assert row[37] == today_str
+    assert row[34] == today_str
     # Expiry reset to 30 days!
-    assert "Còn 30 ngày" in row[38]
+    assert "Còn 30 ngày" in row[35]
 
 def test_agency_marking_common_fund_yields_to_official_general_pool():
     # Scenario like AN3-12:
@@ -374,14 +374,14 @@ def test_agency_marking_common_fund_yields_to_official_general_pool():
             "agency_name": "NOVASKY",
             "is_exclusive": False,
             "status": "Còn hàng",
-            "row_values": [0, "Đảo Ngọc", "AN3-12", "Hoàn thiện", "LK", 70, 208, 10000000000] + [""] * 23 + ["Còn hàng", "Quỹ chung"] + [""] * 3 + ["NOVASKY", "04/11/2026", "Còn 30 ngày"]
+            "row_values": [0, "Đảo Ngọc", "AN3-12", "Hoàn thiện", "LK", 70, 208, 10000000000] + [""] * 23 + ["Còn hàng", "Quỹ chung"] + ["NOVASKY", "04/11/2026", "Còn 30 ngày"] + [""] * 3
         },
         {
             "unit_key": "AN3-12",
             "agency_name": "Quỹ chung",
             "is_exclusive": False,
             "status": "Còn hàng",
-            "row_values": [0, "Đảo Ngọc", "AN3-12", "Hoàn thiện", "LK", 70, 208, 10000000000] + [""] * 23 + ["Còn hàng", "Quỹ chung"] + [""] * 3 + ["Quỹ chung", "04/11/2026", "Còn 30 ngày"]
+            "row_values": [0, "Đảo Ngọc", "AN3-12", "Hoàn thiện", "LK", 70, 208, 10000000000] + [""] * 23 + ["Còn hàng", "Quỹ chung"] + ["Quỹ chung", "04/11/2026", "Còn 30 ngày"] + [""] * 3
         }
     ]
 
@@ -389,7 +389,7 @@ def test_agency_marking_common_fund_yields_to_official_general_pool():
     assert len(final_rows) == 1
     assert final_rows[0][2] == "AN3-12"
     assert final_rows[0][32] == "Quỹ chung"
-    assert final_rows[0][36] == "Quỹ chung"
+    assert final_rows[0][33] == "Quỹ chung"
 
 def test_active_exclusive_candidate_overrides_inactive_protected_owner():
     # Scenario like SV5-07:
@@ -400,7 +400,7 @@ def test_active_exclusive_candidate_overrides_inactive_protected_owner():
     existing_pool = {
         "SV5-07": {
             "unit_key": "SV5-07",
-            "row_values": [1, "Đảo Ngọc", "SV5-07", "Hoàn thiện", "LK", 70, 192.3, 16497494953] + [""] * 23 + ["Đã bán", "Độc quyền"] + [""] * 3 + ["MAI VIỆT", "01/11/2026", "Còn 27 ngày"]
+            "row_values": [1, "Đảo Ngọc", "SV5-07", "Hoàn thiện", "LK", 70, 192.3, 16497494953] + [""] * 23 + ["Đã bán", "Độc quyền"] + ["MAI VIỆT", "01/11/2026", "Còn 27 ngày"] + [""] * 3
         }
     }
     scanned_units = [
@@ -410,7 +410,7 @@ def test_active_exclusive_candidate_overrides_inactive_protected_owner():
             "agency_name": "MAI VIỆT",
             "is_exclusive": True,
             "status": "Đã bán",
-            "row_values": [0, "Đảo Ngọc", "SV5-07", "Hoàn thiện", "LK", 70, 192.3, 16497494953, 1541747818, 82487475, 18121730246] + [""] * 20 + ["Đã bán", "Độc quyền"] + [""] * 3 + ["MAI VIỆT", "01/11/2026", "Còn 27 ngày"]
+            "row_values": [0, "Đảo Ngọc", "SV5-07", "Hoàn thiện", "LK", 70, 192.3, 16497494953, 1541747818, 82487475, 18121730246] + [""] * 20 + ["Đã bán", "Độc quyền"] + ["MAI VIỆT", "01/11/2026", "Còn 27 ngày"] + [""] * 3
         },
         # DAT XANH MT scanned second, 'Còn hàng'
         {
@@ -418,7 +418,7 @@ def test_active_exclusive_candidate_overrides_inactive_protected_owner():
             "agency_name": "Đất xanh MT",
             "is_exclusive": True,
             "status": "Còn hàng",
-            "row_values": [0, "Đảo Ngọc", "SV5-07", "Hoàn thiện", "LK", 70, 192.3, 15692938557, 1461292179, 82487475, 17236718211] + [""] * 20 + ["Còn hàng", "Độc quyền"] + [""] * 3 + ["Đất xanh MT", "04/11/2026", "Còn 30 ngày"]
+            "row_values": [0, "Đảo Ngọc", "SV5-07", "Hoàn thiện", "LK", 70, 192.3, 15692938557, 1461292179, 82487475, 17236718211] + [""] * 20 + ["Còn hàng", "Độc quyền"] + ["Đất xanh MT", "04/11/2026", "Còn 30 ngày"] + [""] * 3
         }
     ]
 
@@ -427,9 +427,9 @@ def test_active_exclusive_candidate_overrides_inactive_protected_owner():
     row = final_rows[0]
     assert row[2] == "SV5-07"
     assert row[31] == "Còn hàng"
-    assert row[36] == "Đất xanh MT"
+    assert row[33] == "Đất xanh MT"
     assert row[32] == "Độc quyền"
-    assert row[37] == "04/11/2026"
+    assert row[34] == "04/11/2026"
 
 def test_richer_pricing_overrides_sparse_agency_when_both_active():
     # Scenario like ĐLHV-09:
@@ -439,7 +439,7 @@ def test_richer_pricing_overrides_sparse_agency_when_both_active():
     existing_pool = {
         "ĐLHV-09": {
             "unit_key": "ĐLHV-09",
-            "row_values": [1, "Bạch Vân", "ĐLHV-09", "Thô", "LK", 80, 244.9, ""] + [""] * 2 + [8756092369] + [""] * 20 + ["Còn hàng", "Độc quyền"] + [""] * 3 + ["MGLAND", "01/11/2026", "Còn 27 ngày"]
+            "row_values": [1, "Bạch Vân", "ĐLHV-09", "Thô", "LK", 80, 244.9, ""] + [""] * 2 + [8756092369] + [""] * 20 + ["Còn hàng", "Độc quyền"] + ["MGLAND", "01/11/2026", "Còn 27 ngày"] + [""] * 3
         }
     }
     scanned_units = [
@@ -449,7 +449,7 @@ def test_richer_pricing_overrides_sparse_agency_when_both_active():
             "agency_name": "MGLAND",
             "is_exclusive": True,
             "status": "Còn hàng",
-            "row_values": [0, "Bạch Vân", "ĐLHV-09", "Thô", "LK", 80, 244.9, ""] + [""] * 2 + [8756092369] + [""] * 20 + ["Còn hàng", "Độc quyền"] + [""] * 3 + ["MGLAND", "01/11/2026", "Còn 27 ngày"]
+            "row_values": [0, "Bạch Vân", "ĐLHV-09", "Thô", "LK", 80, 244.9, ""] + [""] * 2 + [8756092369] + [""] * 20 + ["Còn hàng", "Độc quyền"] + ["MGLAND", "01/11/2026", "Còn 27 ngày"] + [""] * 3
         },
         # DAT XANH MT scanned second (4 price fields)
         {
@@ -457,7 +457,7 @@ def test_richer_pricing_overrides_sparse_agency_when_both_active():
             "agency_name": "Đất xanh MT",
             "is_exclusive": True,
             "status": "Còn hàng",
-            "row_values": [0, "Bạch Vân", "ĐLHV-09", "Thô", "LK", 80, 244.9, 8038027068, 680372219, 37693082, 8756092369] + [""] * 20 + ["Còn hàng", "Độc quyền"] + [""] * 3 + ["Đất xanh MT", "04/11/2026", "Còn 30 ngày"]
+            "row_values": [0, "Bạch Vân", "ĐLHV-09", "Thô", "LK", 80, 244.9, 8038027068, 680372219, 37693082, 8756092369] + [""] * 20 + ["Còn hàng", "Độc quyền"] + ["Đất xanh MT", "04/11/2026", "Còn 30 ngày"] + [""] * 3
         }
     ]
 
@@ -466,7 +466,7 @@ def test_richer_pricing_overrides_sparse_agency_when_both_active():
     row = final_rows[0]
     assert row[2] == "ĐLHV-09"
     assert row[31] == "Còn hàng"
-    assert row[36] == "Đất xanh MT"
+    assert row[33] == "Đất xanh MT"
     assert row[7] == 8038027068
 
 
@@ -488,11 +488,11 @@ def test_issue_date_preserved_on_repeated_sync():
     existing_pool = {
         "LK-OLD": {
             "unit_key": "LK-OLD",
-            "row_values": [1, "Khu A", "LK-OLD", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng", "Độc quyền"] + [""] * 3 + ["Agency A", "04/11/2026", "Còn 29 ngày"]
+            "row_values": [1, "Khu A", "LK-OLD", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng", "Độc quyền"] + ["Agency A", "04/11/2026", "Còn 29 ngày"] + [""] * 3
         },
         "LK-TRANSFER": {
             "unit_key": "LK-TRANSFER",
-            "row_values": [2, "Khu A", "LK-TRANSFER", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng", "Độc quyền"] + [""] * 3 + ["Agency A", "04/11/2026", "Còn 29 ngày"]
+            "row_values": [2, "Khu A", "LK-TRANSFER", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng", "Độc quyền"] + ["Agency A", "04/11/2026", "Còn 29 ngày"] + [""] * 3
         }
     }
 
@@ -503,7 +503,7 @@ def test_issue_date_preserved_on_repeated_sync():
             "agency_name": "Agency A",
             "is_exclusive": True,
             "status": "Còn hàng",
-            "row_values": [0, "Khu A", "LK-OLD", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng", "Độc quyền"] + [""] * 3 + ["Agency A", "", ""]
+            "row_values": [0, "Khu A", "LK-OLD", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng", "Độc quyền"] + ["Agency A", "", ""] + [""] * 3
         },
         # LK-TRANSFER: quét sang Agency B (chuyển đại lý), nguồn không ghi ngày cấp
         {
@@ -511,7 +511,7 @@ def test_issue_date_preserved_on_repeated_sync():
             "agency_name": "Agency B",
             "is_exclusive": True,
             "status": "Còn hàng",
-            "row_values": [0, "Khu A", "LK-TRANSFER", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng", "Độc quyền"] + [""] * 3 + ["Agency B", "", ""]
+            "row_values": [0, "Khu A", "LK-TRANSFER", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng", "Độc quyền"] + ["Agency B", "", ""] + [""] * 3
         },
         # LK-NEW: Căn mới toanh hôm nay
         {
@@ -519,7 +519,7 @@ def test_issue_date_preserved_on_repeated_sync():
             "agency_name": "Agency A",
             "is_exclusive": True,
             "status": "Còn hàng",
-            "row_values": [0, "Khu A", "LK-NEW", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng", "Độc quyền"] + [""] * 3 + ["Agency A", "", ""]
+            "row_values": [0, "Khu A", "LK-NEW", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng", "Độc quyền"] + ["Agency A", "", ""] + [""] * 3
         }
     ]
 
@@ -534,14 +534,14 @@ def test_issue_date_preserved_on_repeated_sync():
     by_key = {r[2]: r for r in final_rows}
 
     # LK-OLD must keep 04/11/2026 (col 37)
-    assert by_key["LK-OLD"][37] == "04/11/2026"
+    assert by_key["LK-OLD"][34] == "04/11/2026"
 
     # LK-TRANSFER must update to 05/11/2026 because owner changed
-    assert by_key["LK-TRANSFER"][37] == "05/11/2026"
-    assert by_key["LK-TRANSFER"][36] == "Agency B"
+    assert by_key["LK-TRANSFER"][34] == "05/11/2026"
+    assert by_key["LK-TRANSFER"][33] == "Agency B"
 
     # LK-NEW must get 05/11/2026 because it is brand new
-    assert by_key["LK-NEW"][37] == "05/11/2026"
+    assert by_key["LK-NEW"][34] == "05/11/2026"
 
 
 def test_vhub_exclusive_source_wins_over_general_pool():
@@ -558,7 +558,7 @@ def test_vhub_exclusive_source_wins_over_general_pool():
             "is_exclusive": False,
             "is_vhub": False,
             "status": "Còn hàng",
-            "row_values": [0, "Khu A", "LK-VHUB-01", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng", "Quỹ chung"] + [""] * 3 + ["Quỹ chung", "03/11/2026", "Còn 30 ngày"]
+            "row_values": [0, "Khu A", "LK-VHUB-01", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng", "Quỹ chung"] + ["Quỹ chung", "03/11/2026", "Còn 30 ngày"] + [""] * 3
         },
         # VHUB quét sau với thông tin từ nguồn được gán
         {
@@ -567,7 +567,7 @@ def test_vhub_exclusive_source_wins_over_general_pool():
             "is_exclusive": True,
             "is_vhub": True,
             "status": "Đang lock",
-            "row_values": [0, "Khu A", "LK-VHUB-01", "Thô", "LK", 100, 200, 5200000000] + [""] * 23 + ["Đang lock", "Quỹ độc quyền"] + [""] * 3 + ["VHUB", "05/11/2026", "Còn 30 ngày"]
+            "row_values": [0, "Khu A", "LK-VHUB-01", "Thô", "LK", 100, 200, 5200000000] + [""] * 23 + ["Đang lock", "Quỹ độc quyền"] + ["VHUB", "05/11/2026", "Còn 30 ngày"] + [""] * 3
         }
     ]
 
@@ -577,7 +577,7 @@ def test_vhub_exclusive_source_wins_over_general_pool():
     assert row[2] == "LK-VHUB-01"
     assert row[31] == "Đang lock"
     assert row[32] == "Quỹ độc quyền"
-    assert row[36] == "VHUB"
+    assert row[33] == "VHUB"
     assert row[7] == 5200000000
 
 
@@ -594,7 +594,7 @@ def test_vhub_exclusive_source_wins_over_other_agency_with_more_prices():
             "is_exclusive": True,
             "is_vhub": False,
             "status": "Còn hàng",
-            "row_values": [0, "Khu A", "LK-VHUB-02", "Thô", "LK", 100, 200, 5000000000, 500000000, 100000000, 5600000000] + [""] * 20 + ["Còn hàng", "Quỹ chéo"] + [""] * 3 + ["Agency A", "03/11/2026", "Còn 30 ngày"]
+            "row_values": [0, "Khu A", "LK-VHUB-02", "Thô", "LK", 100, 200, 5000000000, 500000000, 100000000, 5600000000] + [""] * 20 + ["Còn hàng", "Quỹ chéo"] + ["Agency A", "03/11/2026", "Còn 30 ngày"] + [""] * 3
         },
         # VHUB chỉ có 1 trường giá
         {
@@ -603,7 +603,7 @@ def test_vhub_exclusive_source_wins_over_other_agency_with_more_prices():
             "is_exclusive": True,
             "is_vhub": True,
             "status": "Còn hàng",
-            "row_values": [0, "Khu A", "LK-VHUB-02", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng", "Quỹ độc quyền"] + [""] * 3 + ["VHUB", "05/11/2026", "Còn 30 ngày"]
+            "row_values": [0, "Khu A", "LK-VHUB-02", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng", "Quỹ độc quyền"] + ["VHUB", "05/11/2026", "Còn 30 ngày"] + [""] * 3
         }
     ]
 
@@ -612,7 +612,7 @@ def test_vhub_exclusive_source_wins_over_other_agency_with_more_prices():
     row = final_rows[0]
     assert row[2] == "LK-VHUB-02"
     assert row[32] == "Quỹ độc quyền"
-    assert row[36] == "VHUB"
+    assert row[33] == "VHUB"
 
 
 def test_vhub_takes_over_existing_unit_from_old_agency():
@@ -623,7 +623,7 @@ def test_vhub_takes_over_existing_unit_from_old_agency():
     existing_pool = {
         "LK-VHUB-03": {
             "unit_key": "LK-VHUB-03",
-            "row_values": [1, "Khu A", "LK-VHUB-03", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng", "Quỹ chéo"] + [""] * 3 + ["Agency A", "01/11/2026", "Còn 26 ngày"]
+            "row_values": [1, "Khu A", "LK-VHUB-03", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng", "Quỹ chéo"] + ["Agency A", "01/11/2026", "Còn 26 ngày"] + [""] * 3
         }
     }
     scanned_units = [
@@ -633,7 +633,7 @@ def test_vhub_takes_over_existing_unit_from_old_agency():
             "is_exclusive": True,
             "is_vhub": False,
             "status": "Còn hàng",
-            "row_values": [0, "Khu A", "LK-VHUB-03", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng", "Quỹ chéo"] + [""] * 3 + ["Agency A", "01/11/2026", "Còn 26 ngày"]
+            "row_values": [0, "Khu A", "LK-VHUB-03", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng", "Quỹ chéo"] + ["Agency A", "01/11/2026", "Còn 26 ngày"] + [""] * 3
         },
         {
             "unit_key": "LK-VHUB-03",
@@ -641,7 +641,7 @@ def test_vhub_takes_over_existing_unit_from_old_agency():
             "is_exclusive": True,
             "is_vhub": True,
             "status": "Còn hàng",
-            "row_values": [0, "Khu A", "LK-VHUB-03", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng", "Quỹ độc quyền"] + [""] * 3 + ["VHUB", "05/11/2026", "Còn 30 ngày"]
+            "row_values": [0, "Khu A", "LK-VHUB-03", "Thô", "LK", 100, 200, 5000000000] + [""] * 23 + ["Còn hàng", "Quỹ độc quyền"] + ["VHUB", "05/11/2026", "Còn 30 ngày"] + [""] * 3
         }
     ]
 
@@ -650,4 +650,4 @@ def test_vhub_takes_over_existing_unit_from_old_agency():
     row = final_rows[0]
     assert row[2] == "LK-VHUB-03"
     assert row[32] == "Quỹ độc quyền"
-    assert row[36] == "VHUB"
+    assert row[33] == "VHUB"

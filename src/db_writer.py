@@ -484,14 +484,14 @@ def map_merged_row_to_db_record(
         supporting_banks = _clean_str(_get_col(row, 29), 1024)
         notes_real_estate = _clean_str(_get_col(row, 30))
         state_line, state_line_name = _map_state_line(_get_col(row, 31))
-        fund_groups_sell_name, fund_type, partner = _map_fund_info(_get_col(row, 32), _get_col(row, 36))
-        x_sale_link_summary, product_images = _extract_urls(_get_col(row, 33))
-        x_sale_link_full, pricing_sheet_images = _extract_urls(_get_col(row, 34))
-        x_link_layout_design, _ = _extract_urls(_get_col(row, 35))
+        fund_groups_sell_name, fund_type, partner = _map_fund_info(_get_col(row, 32), _get_col(row, 33))
+        issue_date_raw = _get_col(row, 34)
+        expiry_raw = _clean_str(_get_col(row, 35))
+        x_sale_link_summary, product_images = _extract_urls(_get_col(row, 36))
+        x_sale_link_full, pricing_sheet_images = _extract_urls(_get_col(row, 37))
+        x_link_layout_design, _ = _extract_urls(_get_col(row, 38))
         if not x_link_layout_design:
-            x_link_layout_design = _clean_str(_get_col(row, 35))
-        issue_date_raw = _get_col(row, 37)
-        expiry_raw = _clean_str(_get_col(row, 38))
+            x_link_layout_design = _clean_str(_get_col(row, 38))
 
         building_name = None
         building_code = None

@@ -240,5 +240,42 @@ def test_bulk_upsert_products_to_db_executes_chunks_and_notify():
 
     assert result["upserted"] == 1
     assert result["project_id"] == "vinhomes-hai-van-bay"
+    assert result["reconciled"] == 0
     assert mock_exec_values.call_count == 1
     assert mock_conn.commit.called
+
+
+def test_bulk_upsert_products_to_db_reconciles_stale_units():
+    row = [""] * len(LOW_RISE_HEADERS)
+    row[0] = 1
+    row[1] = "Đảo Ngọc"
+    row[2] = "HC4-02"
+    row[10] = 14948829217
+    row[31] = "Còn hàng"
+    row[32] = "Quỹ độc quyền"
+    row[36] = "VHS"
+
+    mock_conn = MagicMock()
+    mock_cur = MagicMock()
+    mock_cur.rowcount = 3
+    mock_conn.cursor.return_value.__enter__.return_value = mock_cur
+
+    with patch("src.db_writer.get_db_connection", return_value=mock_conn), patch(
+        "src.db_writer.execute_values"
+    ):
+        result = bulk_upsert_products_to_db(
+            rows=[row],
+            project_key="làng vân",
+            is_low_rise=True,
+            chunk_size=200,
+        )
+
+    assert result["upserted"] == 1
+    assert result["reconciled"] == 3
+    # Verify UPDATE products ... is_not_show = true was called
+    reconcile_calls = [
+        call_args for call_args in mock_cur.execute.call_args_list
+        if "UPDATE products" in str(call_args) and "is_not_show = true" in str(call_args)
+    ]
+    assert len(reconcile_calls) == 1
+

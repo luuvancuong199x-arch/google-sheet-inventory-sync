@@ -433,6 +433,7 @@ def map_merged_row_to_db_record(
     is_low_rise: bool,
     sub_tab: Optional[str] = None,
     subdivision_catalog: Optional[Dict[Tuple[str, str], Dict[str, Any]]] = None,
+    now_ts: Optional[datetime] = None,
 ) -> Optional[Dict[str, Any]]:
     """
     Chuyển đổi 1 dòng đã chuẩn hóa (39 cột Thấp tầng hoặc 32 cột Cao tầng)
@@ -451,7 +452,7 @@ def map_merged_row_to_db_record(
         return None
 
     project_id, project_name = resolve_vhub_project(project_key, sub_tab=sub_tab)
-    now_ts = datetime.now(VN_TZ)
+    now_ts = now_ts or datetime.now(VN_TZ)
 
     if is_low_rise:
         subdivision_name = _clean_str(_get_col(row, 1), 255)
@@ -911,6 +912,7 @@ ON CONFLICT (product_code, project_id) DO UPDATE SET
         WHEN jsonb_array_length(EXCLUDED.pricing_sheet_images) > 0 THEN EXCLUDED.pricing_sheet_images
         ELSE products.pricing_sheet_images
     END,
+    is_not_show = EXCLUDED.is_not_show,
     metadata = COALESCE(products.metadata, '{{}}'::jsonb) || EXCLUDED.metadata,
     last_source_observed_at = EXCLUDED.last_source_observed_at,
     updated_at = EXCLUDED.updated_at;
@@ -935,6 +937,7 @@ def bulk_upsert_products_to_db(
     except Exception:
         catalog = {}
 
+    sync_start_time = datetime.now(VN_TZ)
     dedup_records: Dict[str, Dict[str, Any]] = {}
     for r in rows:
         rec = map_merged_row_to_db_record(
@@ -943,6 +946,7 @@ def bulk_upsert_products_to_db(
             is_low_rise=is_low_rise,
             sub_tab=sub_tab,
             subdivision_catalog=catalog,
+            now_ts=sync_start_time,
         )
         if not rec:
             continue
@@ -951,10 +955,11 @@ def bulk_upsert_products_to_db(
 
     records = list(dedup_records.values())
     if not records:
-        return {"project_id": project_id, "project_name": project_name, "upserted": 0}
+        return {"project_id": project_id, "project_name": project_name, "upserted": 0, "reconciled": 0}
 
     json_cols = {"product_images", "pricing_sheet_images", "computed_prices", "metadata"}
 
+    reconciled_count = 0
     try:
         with conn.cursor() as cur:
             for i in range(0, len(records), chunk_size):
@@ -968,6 +973,28 @@ def bulk_upsert_products_to_db(
                     tuples.append(row_tuple)
                 execute_values(cur, UPSERT_SQL, tuples, page_size=chunk_size)
 
+            # Ẩn / chuyển trạng thái các căn không còn tồn tại trong bảng hàng nguồn của dự án này
+            if len(records) > 0:
+                cur.execute(
+                    """
+                    UPDATE products
+                    SET is_not_show = true,
+                        state_line = CASE WHEN state_line = 'available' THEN 'sold' ELSE state_line END,
+                        state_line_name = CASE WHEN state_line_name ILIKE '%còn hàng%' THEN 'Đã bán' ELSE state_line_name END,
+                        updated_at = %s
+                    WHERE project_id = %s
+                      AND (last_source_observed_at IS NULL OR last_source_observed_at < %s)
+                      AND is_not_show = false;
+                    """,
+                    (sync_start_time, project_id, sync_start_time),
+                )
+                reconciled_count = cur.rowcount if isinstance(cur.rowcount, int) else 0
+                if reconciled_count > 0:
+                    logger.info(
+                        f"🧹 [DB Reconcile] Đã ẩn và cập nhật trạng thái {reconciled_count} căn không còn tồn tại "
+                        f"trong bảng hàng nguồn (project_id='{project_id}')"
+                    )
+
             # Xóa cache filter facet cũ của dự án để Backend tự động rebuild khi FE gọi
             cur.execute(
                 "DELETE FROM project_filter_facets WHERE project_id = %s;",
@@ -980,6 +1007,7 @@ def bulk_upsert_products_to_db(
                     "project_id": project_id,
                     "project_name": project_name,
                     "upserted": len(records),
+                    "reconciled": reconciled_count,
                     "timestamp": datetime.now(VN_TZ).isoformat(),
                 },
                 ensure_ascii=False,
@@ -988,13 +1016,14 @@ def bulk_upsert_products_to_db(
 
         conn.commit()
         logger.info(
-            f"💾 [DB Direct Upsert] Đã đồng bộ {len(records)} căn vào bảng 'products' "
+            f"💾 [DB Direct Upsert] Đã đồng bộ {len(records)} căn (ẩn {reconciled_count} căn cũ) vào bảng 'products' "
             f"(project_id='{project_id}', chunk_size={chunk_size})"
         )
         return {
             "project_id": project_id,
             "project_name": project_name,
             "upserted": len(records),
+            "reconciled": reconciled_count,
         }
     except Exception as e:
         conn.rollback()

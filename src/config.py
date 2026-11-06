@@ -126,7 +126,8 @@ RED_HEX_CODES = {
 # Regex nhận diện tab rác / tab thông số không phải bảng hàng
 NON_INVENTORY_TAB_REGEX = (
     r'(stk|tài khoản|tai khoan|giỏ bank|gio bank|đầu mối|dau moi|thông số|thong so|'
-    r'giải chấp|giai chap|bàn giao|ban giao|csbh|đã bán|da ban|check ẩn|check an|'
+    r'giải chấp|giai chap|bàn giao|ban giao|ngày bg|ngay bg|hạn bg|han bg|lịch bg|lich bg|'
+    r'tiến độ|tien do|đặc thù|dac thu|\bbg\b|csbh|đã bán|da ban|check ẩn|check an|'
     r'quỹ ẩn|quy an|quỹ cũ|quy cu|lưu|game|tạo tk|quy định|quy dinh|hướng dẫn|huong dan|'
     r'^\s*xd\b|dtxd|kỹ thuật|ky thuat)'
 )

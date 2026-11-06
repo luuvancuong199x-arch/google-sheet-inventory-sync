@@ -9,7 +9,7 @@ Khắc phục triệt để các lỗi logic của hệ thống cũ:
 """
 
 import re
-from datetime import date
+from datetime import date, datetime
 from typing import Dict, Any, List, Optional, Tuple
 from src.config import DEFAULT_POLICY_YEAR
 
@@ -476,7 +476,33 @@ def normalize_csbh_date(raw_csbh: Any, default_year: int = DEFAULT_POLICY_YEAR) 
     if not raw_csbh:
         return {"csbh_date": "", "extra_gift": "", "extra_bank": "", "extra_note": ""}
 
+    # Đối tượng datetime / date trực tiếp (từ Excel openpyxl)
+    if isinstance(raw_csbh, (datetime, date)):
+        return {
+            "csbh_date": f"{raw_csbh.day:02d}/{raw_csbh.month:02d}/{raw_csbh.year}",
+            "extra_gift": "",
+            "extra_bank": "",
+            "extra_note": ""
+        }
+
     s = str(raw_csbh).strip().rstrip('.').strip()
+
+    # Kiểm tra định dạng ISO YYYY-MM-DD
+    m_iso = re.search(r'(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})', s)
+    if m_iso:
+        y = int(m_iso.group(1))
+        m = int(m_iso.group(2))
+        d = int(m_iso.group(3))
+        try:
+            val_date = date(y, m, d)
+            return {
+                "csbh_date": f"{val_date.day:02d}/{val_date.month:02d}/{val_date.year}",
+                "extra_gift": "",
+                "extra_bank": "",
+                "extra_note": ""
+            }
+        except ValueError:
+            pass
 
     # Kiểm tra ngày đầy đủ dd/mm/yyyy
     m_full = re.search(r'(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4})', s)

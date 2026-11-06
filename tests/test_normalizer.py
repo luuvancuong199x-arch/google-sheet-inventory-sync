@@ -67,13 +67,30 @@ def test_resolve_unit_media_links_preserves_folder():
     assert res["anh_chi_can_ptg"] == folder_url
 
 def test_normalize_csbh_date():
+    from datetime import datetime, date
     # Valid date
     assert normalize_csbh_date("23/12/2025.")["csbh_date"] == "23/12/2025"
     assert normalize_csbh_date("04/05", default_year=2026)["csbh_date"] == "04/05/2026"
     
+    # Datetime and ISO format
+    assert normalize_csbh_date(datetime(2026, 11, 1, 0, 0))["csbh_date"] == "01/11/2026"
+    assert normalize_csbh_date("2026-11-01 00:00:00")["csbh_date"] == "01/11/2026"
+    assert normalize_csbh_date(date(2026, 11, 1))["csbh_date"] == "01/11/2026"
+
     # Invalid date (31/02) must be rejected!
     res_invalid = normalize_csbh_date("31/02/2026")
     assert res_invalid["csbh_date"] == ""  # Rejected, not a valid date!
+
+def test_non_inventory_tab_regex_bg():
+    import re
+    from src.config import NON_INVENTORY_TAB_REGEX
+    rx = re.compile(NON_INVENTORY_TAB_REGEX, re.IGNORECASE)
+    assert rx.search("Ngày BG dự kiến Vịnh Tiên") is not None
+    assert rx.search("Hạn BG") is not None
+    assert rx.search("Lịch BG 2026") is not None
+    assert rx.search("Tiến độ thi công") is not None
+    assert rx.search("Bảng hàng") is None
+    assert rx.search("Bảng hàng Vịnh Tiên") is None
 
 def test_normalize_types():
     assert normalize_low_rise_type("Liền kề", "") == "LK"

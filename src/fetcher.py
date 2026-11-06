@@ -769,16 +769,36 @@ def fetch_agency_from_drive_xlsx(
                     if getattr(ws, 'sheet_state', 'visible') == 'visible' and not skip_rx.search(ws.title)
                 ]
         else:
-            sheets_to_scan = [
-                ws for ws in wb.worksheets
-                if getattr(ws, 'sheet_state', 'visible') == 'visible' and not skip_rx.search(ws.title)
-            ]
+            if sub_tab:
+                # 1. Ưu tiên tìm tab khớp chính xác tên sub_tab được chỉ định
+                exact_sheets = [
+                    ws for ws in wb.worksheets
+                    if ws.title.strip().lower() == sub_tab.strip().lower()
+                ]
+                if exact_sheets:
+                    sheets_to_scan = exact_sheets
+                else:
+                    # 2. Tìm tab khớp regex sub_tab không thuộc danh sách tab rác
+                    regex_sheets = [
+                        ws for ws in wb.worksheets
+                        if re.search(re.escape(sub_tab), ws.title, re.IGNORECASE) and not skip_rx.search(ws.title)
+                    ]
+                    if regex_sheets:
+                        sheets_to_scan = regex_sheets
 
-        if not sheets_to_scan and sub_tab:
-            for ws in wb.worksheets:
-                if re.search(re.escape(sub_tab), ws.title, re.IGNORECASE):
-                    sheets_to_scan.append(ws)
-                    break
+            if not sheets_to_scan:
+                # 3. Ưu tiên tab có tên 'Bảng hàng' hoặc 'Bảng hàng chuẩn hóa' nếu có
+                primary_sheets = [
+                    ws for ws in wb.worksheets
+                    if ws.title.strip().lower() in ['bảng hàng', 'bang hang', 'bảng hàng chuẩn hóa', 'bang hang chuan hoa']
+                ]
+                if primary_sheets:
+                    sheets_to_scan = primary_sheets
+                else:
+                    sheets_to_scan = [
+                        ws for ws in wb.worksheets
+                        if getattr(ws, 'sheet_state', 'visible') == 'visible' and not skip_rx.search(ws.title)
+                    ]
 
         all_units = []
         for ws in sheets_to_scan:

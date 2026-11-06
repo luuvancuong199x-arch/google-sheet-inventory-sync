@@ -32,6 +32,9 @@ DIRECTORY_HEADERS = [
     "Căn mới hôm nay",
     "Chuyển Đã bán hôm nay",
     "Sắp hết hạn (29 ngày)",
+    "Còn hàng",
+    "Lock",
+    "Đã bán",
     "Tổng số căn",
     "Thời gian kiểm tra"
 ]
@@ -54,7 +57,7 @@ def ensure_directory_sheet_exists(sheets_service: Any, spreadsheet_id: str) -> i
                             "title": DIRECTORY_TAB_NAME,
                             "gridProperties": {
                                 "rowCount": 200,
-                                "columnCount": 15,
+                                "columnCount": 18,
                                 "frozenRowCount": 5
                             }
                         }
@@ -88,10 +91,11 @@ def apply_directory_styling(
             "properties": {
                 "sheetId": sheet_id,
                 "gridProperties": {
-                    "frozenRowCount": 5
+                    "frozenRowCount": 5,
+                    "columnCount": 18
                 }
             },
-            "fields": "gridProperties.frozenRowCount"
+            "fields": "gridProperties(frozenRowCount,columnCount)"
         }
     })
 
@@ -103,35 +107,35 @@ def apply_directory_styling(
                 "startRowIndex": 0,
                 "endRowIndex": 4,
                 "startColumnIndex": 0,
-                "endColumnIndex": 11
+                "endColumnIndex": 18
             }
         }
     })
 
     # 3. Gộp ô (Merge) cho Banner & 4 Thẻ KPI:
-    # Hàng 1: Tiêu đề Banner A1:K1 (cols 0-11)
+    # Hàng 1: Tiêu đề Banner A1:N1 (cols 0-14)
     requests.append({
         "mergeCells": {
-            "range": {"sheetId": sheet_id, "startRowIndex": 0, "endRowIndex": 1, "startColumnIndex": 0, "endColumnIndex": 11},
+            "range": {"sheetId": sheet_id, "startRowIndex": 0, "endRowIndex": 1, "startColumnIndex": 0, "endColumnIndex": 14},
             "mergeType": "MERGE_ALL"
         }
     })
-    # Hàng 2: Nhãn KPI (Cols 0-3: Căn mới, 3-5: Chuyển bán, 5-8: Sắp hết hạn, 8-11: Tổng quỹ)
+    # Hàng 2: Nhãn KPI (Cols 0-3: Căn mới, 3-6: Chuyển bán, 6-9: Sắp hết hạn, 9-14: Tổng quỹ)
     requests.append({"mergeCells": {"range": {"sheetId": sheet_id, "startRowIndex": 1, "endRowIndex": 2, "startColumnIndex": 0, "endColumnIndex": 3}, "mergeType": "MERGE_ALL"}})
-    requests.append({"mergeCells": {"range": {"sheetId": sheet_id, "startRowIndex": 1, "endRowIndex": 2, "startColumnIndex": 3, "endColumnIndex": 5}, "mergeType": "MERGE_ALL"}})
-    requests.append({"mergeCells": {"range": {"sheetId": sheet_id, "startRowIndex": 1, "endRowIndex": 2, "startColumnIndex": 5, "endColumnIndex": 8}, "mergeType": "MERGE_ALL"}})
-    requests.append({"mergeCells": {"range": {"sheetId": sheet_id, "startRowIndex": 1, "endRowIndex": 2, "startColumnIndex": 8, "endColumnIndex": 11}, "mergeType": "MERGE_ALL"}})
+    requests.append({"mergeCells": {"range": {"sheetId": sheet_id, "startRowIndex": 1, "endRowIndex": 2, "startColumnIndex": 3, "endColumnIndex": 6}, "mergeType": "MERGE_ALL"}})
+    requests.append({"mergeCells": {"range": {"sheetId": sheet_id, "startRowIndex": 1, "endRowIndex": 2, "startColumnIndex": 6, "endColumnIndex": 9}, "mergeType": "MERGE_ALL"}})
+    requests.append({"mergeCells": {"range": {"sheetId": sheet_id, "startRowIndex": 1, "endRowIndex": 2, "startColumnIndex": 9, "endColumnIndex": 14}, "mergeType": "MERGE_ALL"}})
 
     # Hàng 3: Giá trị KPI (Cols tương ứng)
     requests.append({"mergeCells": {"range": {"sheetId": sheet_id, "startRowIndex": 2, "endRowIndex": 3, "startColumnIndex": 0, "endColumnIndex": 3}, "mergeType": "MERGE_ALL"}})
-    requests.append({"mergeCells": {"range": {"sheetId": sheet_id, "startRowIndex": 2, "endRowIndex": 3, "startColumnIndex": 3, "endColumnIndex": 5}, "mergeType": "MERGE_ALL"}})
-    requests.append({"mergeCells": {"range": {"sheetId": sheet_id, "startRowIndex": 2, "endRowIndex": 3, "startColumnIndex": 5, "endColumnIndex": 8}, "mergeType": "MERGE_ALL"}})
-    requests.append({"mergeCells": {"range": {"sheetId": sheet_id, "startRowIndex": 2, "endRowIndex": 3, "startColumnIndex": 8, "endColumnIndex": 11}, "mergeType": "MERGE_ALL"}})
+    requests.append({"mergeCells": {"range": {"sheetId": sheet_id, "startRowIndex": 2, "endRowIndex": 3, "startColumnIndex": 3, "endColumnIndex": 6}, "mergeType": "MERGE_ALL"}})
+    requests.append({"mergeCells": {"range": {"sheetId": sheet_id, "startRowIndex": 2, "endRowIndex": 3, "startColumnIndex": 6, "endColumnIndex": 9}, "mergeType": "MERGE_ALL"}})
+    requests.append({"mergeCells": {"range": {"sheetId": sheet_id, "startRowIndex": 2, "endRowIndex": 3, "startColumnIndex": 9, "endColumnIndex": 14}, "mergeType": "MERGE_ALL"}})
 
     # 4. Định dạng Hàng 1 (Banner Tiêu đề: Navy #1b365d, chữ trắng đậm 11pt)
     requests.append({
         "repeatCell": {
-            "range": {"sheetId": sheet_id, "startRowIndex": 0, "endRowIndex": 1, "startColumnIndex": 0, "endColumnIndex": 11},
+            "range": {"sheetId": sheet_id, "startRowIndex": 0, "endRowIndex": 1, "startColumnIndex": 0, "endColumnIndex": 14},
             "cell": {
                 "userEnteredFormat": {
                     "backgroundColor": {"red": 0.106, "green": 0.212, "blue": 0.365},
@@ -149,11 +153,11 @@ def apply_directory_styling(
         # Card 1: Xanh lá cây (Căn mới)
         {"cols": (0, 3), "bg": {"red": 0.910, "green": 0.961, "blue": 0.914}, "fg": {"red": 0.106, "green": 0.369, "blue": 0.125}},
         # Card 2: Đỏ (Chuyển Đã bán)
-        {"cols": (3, 5), "bg": {"red": 1.000, "green": 0.922, "blue": 0.933}, "fg": {"red": 0.718, "green": 0.110, "blue": 0.110}},
+        {"cols": (3, 6), "bg": {"red": 1.000, "green": 0.922, "blue": 0.933}, "fg": {"red": 0.718, "green": 0.110, "blue": 0.110}},
         # Card 3: Cam (Sắp hết hạn)
-        {"cols": (5, 8), "bg": {"red": 1.000, "green": 0.953, "blue": 0.878}, "fg": {"red": 0.902, "green": 0.318, "blue": 0.000}},
+        {"cols": (6, 9), "bg": {"red": 1.000, "green": 0.953, "blue": 0.878}, "fg": {"red": 0.902, "green": 0.318, "blue": 0.000}},
         # Card 4: Xanh dương (Tổng quỹ)
-        {"cols": (8, 11), "bg": {"red": 0.890, "green": 0.949, "blue": 0.992}, "fg": {"red": 0.051, "green": 0.278, "blue": 0.631}},
+        {"cols": (9, 14), "bg": {"red": 0.890, "green": 0.949, "blue": 0.992}, "fg": {"red": 0.051, "green": 0.278, "blue": 0.631}},
     ]
 
     for item in kpi_formats:
@@ -213,12 +217,15 @@ def apply_directory_styling(
         (2, 3, 130),  # Phân khu
         (3, 4, 240),  # Link
         (4, 5, 200),  # Trạng thái
-        (5, 6, 380),  # Mô tả
+        (5, 6, 320),  # Mô tả
         (6, 7, 120),  # Căn mới hôm nay
         (7, 8, 130),  # Chuyển Đã bán hôm nay
         (8, 9, 130),  # Sắp hết hạn (29 ngày)
-        (9, 10, 95),  # Tổng số căn
-        (10, 11, 130) # Thời gian
+        (9, 10, 95),  # Còn hàng
+        (10, 11, 85), # Lock
+        (11, 12, 95), # Đã bán
+        (12, 13, 95), # Tổng số căn
+        (13, 14, 135) # Thời gian
     ]
     for start_c, end_c, px in col_widths:
         requests.append({
@@ -231,8 +238,8 @@ def apply_directory_styling(
 
     # 8. Định dạng số, text và căn giữa cho các cột dữ liệu (Hàng 6 trở đi)
     if total_rows > 5:
-        # Cột số: STT (0), Căn mới (6), Chuyển bán (7), Hạn (8), Tổng căn (9)
-        int_cols = [0, 6, 7, 8, 9]
+        # Cột số: STT (0), Căn mới (6), Chuyển bán (7), Hạn (8), Còn hàng (9), Lock (10), Đã bán (11), Tổng căn (12)
+        int_cols = [0, 6, 7, 8, 9, 10, 11, 12]
         for c in int_cols:
             requests.append({
                 "repeatCell": {
@@ -263,10 +270,10 @@ def apply_directory_styling(
             }
         })
 
-        # Cột Thời gian kiểm tra (10): định dạng dd/MM/yyyy HH:mm
+        # Cột Thời gian kiểm tra (13): định dạng dd/MM/yyyy HH:mm
         requests.append({
             "repeatCell": {
-                "range": {"sheetId": sheet_id, "startRowIndex": 5, "endRowIndex": total_rows, "startColumnIndex": 10, "endColumnIndex": 11},
+                "range": {"sheetId": sheet_id, "startRowIndex": 5, "endRowIndex": total_rows, "startColumnIndex": 13, "endColumnIndex": 14},
                 "cell": {
                     "userEnteredFormat": {
                         "numberFormat": {"type": "DATE_TIME", "pattern": "dd/MM/yyyy HH:mm"},
@@ -391,6 +398,57 @@ def apply_directory_styling(
                     }
                 },
                 "index": 5
+            }
+        })
+
+        # Col 9: Còn hàng (> 0: xanh nhạt)
+        requests.append({
+            "addConditionalFormatRule": {
+                "rule": {
+                    "ranges": [{"sheetId": sheet_id, "startRowIndex": 5, "endRowIndex": total_rows, "startColumnIndex": 9, "endColumnIndex": 10}],
+                    "booleanRule": {
+                        "condition": {"type": "NUMBER_GREATER", "values": [{"userEnteredValue": "0"}]},
+                        "format": {
+                            "backgroundColor": {"red": 0.910, "green": 0.961, "blue": 0.914},
+                            "textFormat": {"foregroundColor": {"red": 0.106, "green": 0.369, "blue": 0.125}, "bold": True}
+                        }
+                    }
+                },
+                "index": 6
+            }
+        })
+
+        # Col 10: Lock (> 0: vàng cam nhạt)
+        requests.append({
+            "addConditionalFormatRule": {
+                "rule": {
+                    "ranges": [{"sheetId": sheet_id, "startRowIndex": 5, "endRowIndex": total_rows, "startColumnIndex": 10, "endColumnIndex": 11}],
+                    "booleanRule": {
+                        "condition": {"type": "NUMBER_GREATER", "values": [{"userEnteredValue": "0"}]},
+                        "format": {
+                            "backgroundColor": {"red": 1.000, "green": 0.953, "blue": 0.878},
+                            "textFormat": {"foregroundColor": {"red": 0.800, "green": 0.400, "blue": 0.000}, "bold": True}
+                        }
+                    }
+                },
+                "index": 7
+            }
+        })
+
+        # Col 11: Đã bán (> 0: tím hồng/đỏ nhạt)
+        requests.append({
+            "addConditionalFormatRule": {
+                "rule": {
+                    "ranges": [{"sheetId": sheet_id, "startRowIndex": 5, "endRowIndex": total_rows, "startColumnIndex": 11, "endColumnIndex": 12}],
+                    "booleanRule": {
+                        "condition": {"type": "NUMBER_GREATER", "values": [{"userEnteredValue": "0"}]},
+                        "format": {
+                            "backgroundColor": {"red": 0.960, "green": 0.920, "blue": 0.940},
+                            "textFormat": {"foregroundColor": {"red": 0.550, "green": 0.150, "blue": 0.400}, "bold": True}
+                        }
+                    }
+                },
+                "index": 8
             }
         })
 
@@ -550,6 +608,9 @@ def update_project_agency_directory(
     total_new_today = project_stats.get("new_today", 0)
     total_sold_today = project_stats.get("sold_today", 0)
     total_expiring_soon = project_stats.get("expiring_soon", 0)
+    total_avail = project_stats.get("avail", 0)
+    total_lock = project_stats.get("lock", 0)
+    total_sold = project_stats.get("sold", 0)
     total_units = project_stats.get("total_units", 0)
 
     # 3. Đảm bảo tab tồn tại
@@ -559,27 +620,30 @@ def update_project_agency_directory(
     current_time_str = datetime.now(VN_TZ).strftime("%d/%m/%Y %H:%M")
 
     # Banner dòng 1
-    kpi_row_1 = [f"TỔNG HỢP BIẾN ĐỘNG TRONG NGÀY ({today_str}) - CẬP NHẬT LÚC {current_time_str}"] + [""] * 10
+    kpi_row_1 = [f"TỔNG HỢP BIẾN ĐỘNG TRONG NGÀY ({today_str}) - CẬP NHẬT LÚC {current_time_str}"] + [""] * 13
     # Nhãn thẻ KPI dòng 2
     kpi_row_2 = [
         "🟢 CĂN MỚI HÔM NAY", "", "",
-        "🔴 CHUYỂN ĐÃ BÁN HÔM NAY", "",
+        "🔴 CHUYỂN ĐÃ BÁN HÔM NAY", "", "",
         "🟠 SẮP HẾT HẠN (MỐC 29 NGÀY)", "", "",
-        "📊 TỔNG QUỸ ĐANG QUẢN LÝ", "", ""
+        "📊 TỔNG QUỸ ĐANG QUẢN LÝ", "", "", "", ""
     ]
     # Giá trị thẻ KPI dòng 3
     new_str = f"+{total_new_today}" if total_new_today > 0 else "0"
     sold_str = f"{total_sold_today}"
     exp_str = f"{total_expiring_soon}"
-    units_str = f"{total_units:,} căn"
+    if total_units > 0:
+        units_str = f"{total_units:,} căn ({total_avail:,} còn | {total_lock:,} lock | {total_sold:,} bán)"
+    else:
+        units_str = "0 căn"
     kpi_row_3 = [
         new_str, "", "",
-        sold_str, "",
+        sold_str, "", "",
         exp_str, "", "",
-        units_str, "", ""
+        units_str, "", "", "", ""
     ]
     # Dòng phân cách dòng 4
-    separator_row = [""] * 11
+    separator_row = [""] * 14
     # Tiêu đề bảng dòng 5
     header_row = DIRECTORY_HEADERS
 
@@ -635,14 +699,18 @@ def update_project_agency_directory(
             agency_stats.get((p_u, clean_ag))
         ) or link_st
 
+        count = 0
+        avail = 0
+        lock = 0
+        sold = 0
+        ag_new = 0
+        ag_sold = 0
+        ag_expiring = 0
+
         if is_qc:
             if not url:
                 status_text = "Chờ cấu hình"
                 desc_text = "Chưa gắn link nguồn. Vui lòng dán link bảng tính Quỹ chung có chứa GID vào Cột D."
-                count = 0
-                ag_new = 0
-                ag_sold = 0
-                ag_expiring = 0
             elif (link_st and (link_st.get('total_units', 0) > 0 or link_st.get('count', 0) > 0)) or (ag_st and (ag_st.get('total_units', 0) > 0 or ag_st.get('count', 0) > 0)):
                 effective_st = link_st or ag_st
                 count = effective_st.get('total_units') or effective_st.get('count', 0)
@@ -653,14 +721,10 @@ def update_project_agency_directory(
                 ag_sold = ag_st.get('sold_today', 0) if ag_st else 0
                 ag_expiring = ag_st.get('expiring_soon', 0) if ag_st else 0
                 status_text = "Đang hoạt động"
-                desc_text = f"Đã đồng bộ {count} căn Quỹ chung ({avail} còn hàng, {lock} lock, {sold} đã bán)."
+                desc_text = f"Đã đồng bộ thành công {count} căn Quỹ chung."
             else:
                 status_text = "Đang hoạt động"
                 desc_text = "Đã kết nối nguồn Quỹ chung (Các căn trong giỏ đang được đại lý phân phối độc quyền quản lý)."
-                count = 0
-                ag_new = 0
-                ag_sold = 0
-                ag_expiring = 0
         elif (link_st and (link_st.get('total_units', 0) > 0 or link_st.get('count', 0) > 0)) or (ag_st and (ag_st.get('total_units', 0) > 0 or ag_st.get('count', 0) > 0)):
             effective_st = link_st or ag_st
             count = effective_st.get('total_units') or effective_st.get('count', 0)
@@ -672,22 +736,14 @@ def update_project_agency_directory(
             ag_expiring = ag_st.get('expiring_soon', 0) if ag_st else 0
 
             status_text = "Đang hoạt động"
-            desc_text = f"Đã đồng bộ {count} căn ({avail} còn hàng, {lock} lock, {sold} đã bán)."
+            desc_text = f"Đã kết nối và đồng bộ thành công {count} căn."
         elif link_st is not None:
             status_text = "Cảnh báo: Bảng hàng trống / Hết hàng"
             desc_text = "Bảng tính kết nối thành công nhưng không có căn nào còn diện tích hoặc giá. Đại lý có thể đã bán hết hàng hoặc đang ẩn giỏ hàng."
-            count = 0
-            ag_new = 0
-            ag_sold = 0
-            ag_expiring = 0
         elif diag_info:
             root_cause = diag_info.get('root_cause', 'UNKNOWN')
             detail = diag_info.get('detail', '')
             action = diag_info.get('recommended_action', '')
-            count = 0
-            ag_new = 0
-            ag_sold = 0
-            ag_expiring = 0
 
             if root_cause == 'CANNOT_DOWNLOAD_XLSX':
                 status_text = "Lỗi: File Drive bị khóa tải"
@@ -716,10 +772,6 @@ def update_project_agency_directory(
         else:
             status_text = "Đang kiểm tra"
             desc_text = "Đang trong tiến trình quét kiểm toán tự động."
-            count = 0
-            ag_new = 0
-            ag_sold = 0
-            ag_expiring = 0
 
         rows_data.append([
             stt_str,
@@ -731,6 +783,9 @@ def update_project_agency_directory(
             ag_new,
             ag_sold,
             ag_expiring,
+            avail,
+            lock,
+            sold,
             count,
             current_time_str
         ])

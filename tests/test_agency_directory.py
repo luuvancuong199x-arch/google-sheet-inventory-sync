@@ -8,13 +8,17 @@ from src.agency_directory import (
 )
 
 def test_directory_headers_count():
-    assert len(DIRECTORY_HEADERS) == 11
+    assert len(DIRECTORY_HEADERS) == 14
     assert DIRECTORY_HEADERS[0] == "STT"
     assert DIRECTORY_HEADERS[1] == "Tên Đại lý"
     assert DIRECTORY_HEADERS[6] == "Căn mới hôm nay"
     assert DIRECTORY_HEADERS[7] == "Chuyển Đã bán hôm nay"
     assert DIRECTORY_HEADERS[8] == "Sắp hết hạn (29 ngày)"
-    assert DIRECTORY_HEADERS[9] == "Tổng số căn"
+    assert DIRECTORY_HEADERS[9] == "Còn hàng"
+    assert DIRECTORY_HEADERS[10] == "Lock"
+    assert DIRECTORY_HEADERS[11] == "Đã bán"
+    assert DIRECTORY_HEADERS[12] == "Tổng số căn"
+    assert DIRECTORY_HEADERS[13] == "Thời gian kiểm tra"
 
 def test_update_project_agency_directory_mock():
     mock_service = MagicMock()
@@ -90,10 +94,10 @@ def test_update_project_agency_directory_mock():
     # Row 3 is KPI values
     assert "+2" in values[2][0]  # new_today
     assert "1" in values[2][3]   # sold_today
-    assert "1" in values[2][5]   # expiring_soon
-    assert "10 căn" in values[2][8] # total_units
+    assert "1" in values[2][6]   # expiring_soon
+    assert "10 căn" in values[2][9] # total_units in Card 4 (starts at col 9)
     # Row 4 is separator
-    assert values[3] == [""] * 11
+    assert values[3] == [""] * 14
     # Row 5 is header
     assert values[4] == DIRECTORY_HEADERS
     # Row 6+ are agencies
@@ -102,8 +106,11 @@ def test_update_project_agency_directory_mock():
     homeplus_row = values[5]
     assert homeplus_row[1] == "HOMEPLUS"
     assert homeplus_row[4] == "Đang hoạt động"
+    assert homeplus_row[5] == "Đã kết nối và đồng bộ thành công 10 căn."
     assert homeplus_row[6] == 2   # new_today
     assert homeplus_row[7] == 1   # sold_today
     assert homeplus_row[8] == 1   # expiring_soon
-    assert homeplus_row[9] == 10  # total_units
-
+    assert homeplus_row[9] == 8   # avail (Còn hàng)
+    assert homeplus_row[10] == 1  # lock (Lock)
+    assert homeplus_row[11] == 1  # sold (Đã bán)
+    assert homeplus_row[12] == 10 # total_units (Tổng số căn)

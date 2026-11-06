@@ -10,7 +10,8 @@ from src.normalizer import (
     normalize_csbh_date,
     normalize_low_rise_type,
     normalize_high_rise_type,
-    normalize_direction
+    normalize_direction,
+    realign_legacy_row
 )
 
 def test_sanitize_unit_code():
@@ -192,5 +193,37 @@ def test_normalize_price_rejects_dates_and_extreme_m2():
     # Valid M2 prices
     assert normalize_price_to_vnd(85_000_000, unit_hint="M2") == 85_000_000
     assert normalize_price_to_vnd("75.5 triệu/m2", unit_hint="M2") == 75_500_000
+
+def test_realign_legacy_row():
+    # 1. Row already canonical: col 31 is status, col 32 is fund group
+    canonical_row = [''] * 30 + ['Ghi chu', 'Còn hàng', 'Quỹ chéo', 'https://img1', '', 'https://img3', 'BHOMES', '05/11/2026', 'Còn 29 ngày']
+    res_canon = realign_legacy_row(canonical_row, is_low_rise=True)
+    assert res_canon[31] == 'Còn hàng'
+    assert res_canon[32] == 'Quỹ chéo'
+    assert res_canon[33] == 'https://img1'
+    assert res_canon[36] == 'BHOMES'
+
+    # 2. Legacy Layout Sub-case A (QCBEST in HLX): col 33 is agency, col 34 is status, col 35 is fund group, col 36 is date
+    legacy_qc = [''] * 30 + ['', 'https://drive/folder', '', 'QCBEST', 'Còn hàng', 'Quỹ chung', '6/10/2026', '', '']
+    res_qc = realign_legacy_row(legacy_qc, is_low_rise=True)
+    assert res_qc[31] == 'Còn hàng'
+    assert res_qc[32] == 'Quỹ chung'
+    assert res_qc[33] == 'https://drive/folder'
+    assert res_qc[36] == 'QCBEST'
+    assert res_qc[37] == '6/10/2026'
+
+    # 3. Legacy Layout Sub-case B (ATD HOMES in HLX, VHUB in Duong Kinh, O2O in OCP2-3):
+    # col 31-33 images, col 34 status, col 35 fund group, col 36 agency
+    legacy_atd = [''] * 30 + ['', '', 'https://drive/img2', 'https://drive/img3', 'Còn hàng', 'Quỹ chéo', 'ATD HOMES', '04/11/2026', 'Còn 28 ngày']
+    res_atd = realign_legacy_row(legacy_atd, is_low_rise=True)
+    assert res_atd[31] == 'Còn hàng'
+    assert res_atd[32] == 'Quỹ chéo'
+    assert res_atd[33] == ''
+    assert res_atd[34] == 'https://drive/img2'
+    assert res_atd[35] == 'https://drive/img3'
+    assert res_atd[36] == 'ATD HOMES'
+    assert res_atd[37] == '04/11/2026'
+    assert res_atd[38] == 'Còn 28 ngày'
+
 
 

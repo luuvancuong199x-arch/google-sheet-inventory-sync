@@ -834,4 +834,111 @@ def compute_expiry_warning(
             "status": "NORMAL"
         }
 
+def realign_legacy_row(row: List[Any], is_low_rise: bool) -> List[Any]:
+    """
+    Tự động phát hiện và sắp xếp lại các ô trong dòng dữ liệu cũ nếu dòng đó
+    được lưu theo cấu trúc cột cũ (Legacy Layout) trước khi người dùng đổi vị trí cột.
+
+    Cấu trúc chuẩn Low-Rise (39 cột):
+    Index 30 (AE): Ghi chú
+    Index 31 (AF): Trạng thái
+    Index 32 (AG): Nhóm quỹ
+    Index 33 (AH): Ảnh chỉ căn
+    Index 34 (AI): Ảnh phiếu tính giá
+    Index 35 (AJ): Ẩnh chỉ căn+ PTG
+    Index 36 (AK): Đại lý
+    Index 37 (AL): Ngày cấp hàng
+    Index 38 (AM): Hạn cấp hàng (Còn lại)
+    """
+    if not is_low_rise or len(row) <= 34:
+        return row
+
+    def _format_date_val(val: Any) -> str:
+        s = str(val or '').strip()
+        if not s:
+            return ''
+        if re.match(r'^\d{5}$', s):
+            try:
+                return (date(1899, 12, 30) + timedelta(days=int(s))).strftime('%d/%m/%Y')
+            except Exception:
+                pass
+        return s
+
+    val_31 = str(row[31] if len(row) > 31 else '').strip()
+    val_32 = str(row[32] if len(row) > 32 else '').strip()
+    val_33 = str(row[33] if len(row) > 33 else '').strip()
+    val_34 = str(row[34] if len(row) > 34 else '').strip()
+    val_35 = str(row[35] if len(row) > 35 else '').strip()
+    val_36 = str(row[36] if len(row) > 36 else '').strip()
+    val_37 = str(row[37] if len(row) > 37 else '').strip()
+    val_38 = str(row[38] if len(row) > 38 else '').strip()
+
+    status_keywords = {'còn hàng', 'đang lock', 'đã bán'}
+    fund_keywords = {'quỹ chung', 'quỹ độc quyền', 'quỹ chéo', 'quỹ ngoại giao'}
+
+    is_date_36 = bool(re.match(r'^\d{1,2}[/-]\d{1,2}[/-]\d{4}$', val_36) or re.match(r'^\d{5}$', val_36))
+
+    # Trường hợp A: Col 31 là Trạng thái, nhưng Col 35 là Đại lý và Col 36 là Ngày cấp hàng
+    if val_31.lower() in status_keywords and is_date_36 and ('http' not in val_35 and 'drive' not in val_35 and val_35):
+        new_row = list(row)
+        while len(new_row) < 39:
+            new_row.append('')
+        agency = val_35
+        is_date_37 = bool(re.match(r'^\d{1,2}[/-]\d{1,2}[/-]\d{4}$', val_37) or re.match(r'^\d{5}$', val_37))
+        issue_date = _format_date_val(val_37) if is_date_37 else _format_date_val(val_36)
+        new_row[35] = ''
+        new_row[36] = agency
+        new_row[37] = issue_date
+        return new_row
+
+    # Dòng đã chuẩn mới: col 31 là Trạng thái và col 32 là Nhóm quỹ (hoặc trống)
+    if val_31.lower() in status_keywords and (val_32.lower() in fund_keywords or not val_32) and not is_date_36:
+        if re.match(r'^\d{5}$', val_37):
+            new_row = list(row)
+            new_row[37] = _format_date_val(val_37)
+            return new_row
+        return row
+
+    # Phát hiện dòng legacy: col 34 là Trạng thái ('Còn hàng', 'Đang lock', 'Đã bán')
+    if val_34.lower() in status_keywords:
+        new_row = list(row)
+        while len(new_row) < 39:
+            new_row.append('')
+
+        status = val_34
+        fund_group = val_35
+
+        is_url_33 = bool('http' in val_33 or 'drive.google' in val_33)
+
+        # Nếu col 33 KHÔNG phải URL và có giá trị -> đây là Tên đại lý (e.g. QCBEST, TÂN HƯƠNG PHÁT)
+        if not is_url_33 and val_33:
+            agency = val_33
+            img1 = val_31
+            img2 = val_32
+            img3 = ''
+            is_date_37 = bool(re.match(r'^\d{1,2}[/-]\d{1,2}[/-]\d{4}$', val_37) or re.match(r'^\d{5}$', val_37))
+            issue_date = _format_date_val(val_37) if is_date_37 else _format_date_val(val_36)
+            expiry = val_38
+        else:
+            agency = val_36
+            img1 = val_31
+            img2 = val_32
+            img3 = val_33
+            issue_date = _format_date_val(val_37)
+            expiry = val_38
+
+        new_row[31] = status
+        new_row[32] = fund_group
+        new_row[33] = img1
+        new_row[34] = img2
+        new_row[35] = img3
+        new_row[36] = agency
+        new_row[37] = issue_date
+        new_row[38] = expiry
+
+        return new_row
+
+    return row
+
+
 

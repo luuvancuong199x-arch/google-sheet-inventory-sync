@@ -8,7 +8,7 @@ import re
 import time
 import logging
 from typing import Dict, List, Any
-from src.normalizer import sanitize_unit_code
+from src.normalizer import sanitize_unit_code, realign_legacy_row
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +93,9 @@ def read_existing_target_pool(
                 continue
             if re.search(r'^(phân\s*khu|bảng\s*hàng|đơn\s*lập|song\s*lập|liền\s*kề|biệt\s*thự|shophouse|tổng\s*cộng|căn\s*hộ|ghi\s*chú|demo|test|đlmc|dlmc|lp)$', key, re.IGNORECASE):
                 continue
+
+            if is_low_rise:
+                row = realign_legacy_row(row, is_low_rise=True)
 
             existing_pool[key] = {
                 "unit_key": key,

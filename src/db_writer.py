@@ -980,13 +980,13 @@ def bulk_upsert_products_to_db(
                     UPDATE products
                     SET is_not_show = true,
                         state_line = CASE WHEN state_line = 'available' THEN 'sold' ELSE state_line END,
-                        state_line_name = CASE WHEN state_line_name ILIKE '%còn hàng%' THEN 'Đã bán' ELSE state_line_name END,
+                        state_line_name = CASE WHEN state_line_name ILIKE %s THEN 'Đã bán' ELSE state_line_name END,
                         updated_at = %s
                     WHERE project_id = %s
                       AND (last_source_observed_at IS NULL OR last_source_observed_at < %s)
                       AND is_not_show = false;
                     """,
-                    (sync_start_time, project_id, sync_start_time),
+                    ("%còn hàng%", sync_start_time, project_id, sync_start_time),
                 )
                 reconciled_count = cur.rowcount if isinstance(cur.rowcount, int) else 0
                 if reconciled_count > 0:
@@ -1027,7 +1027,7 @@ def bulk_upsert_products_to_db(
         }
     except Exception as e:
         conn.rollback()
-        logger.error(f"❌ Lỗi khi Bulk Upsert DB cho dự án '{project_id}': {e}")
+        logger.error(f"❌ Lỗi khi Bulk Upsert DB cho dự án '{project_id}': {e}", exc_info=True)
         raise
     finally:
         conn.close()

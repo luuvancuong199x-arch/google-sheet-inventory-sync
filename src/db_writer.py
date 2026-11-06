@@ -234,6 +234,10 @@ def _parse_decimal(val: Any, is_price: bool = False) -> Optional[Decimal]:
                 s = s.replace(",", "")
             else:
                 s = s.replace(",", ".")
+        elif "." in s:
+            parts = s.split(".")
+            if len(parts) > 2 or (is_price and len(parts) == 2 and len(parts[1]) == 3 and len(parts[0]) >= 1):
+                s = s.replace(".", "")
         try:
             d = Decimal(s)
         except InvalidOperation:

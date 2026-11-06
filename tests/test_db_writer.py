@@ -83,7 +83,7 @@ def test_map_low_rise_row_to_db_record():
     row[30] = "TTĐC"
     row[31] = "Còn hàng"
     row[32] = "Quỹ độc quyền"
-    row[33] = '=HYPERLINK("https://docs.google.com/spreadsheets/d/123", "VHS")'
+    row[33] = '=HYPERLINK("https://docs.google.com/spreadsheets/d/123", "Vhub")'
     row[34] = "01/11/2026"
     row[35] = "Còn 27 ngày (Đã bán 3 ngày)"
     row[36] = "https://drive.google.com/file/d/img1/view"
@@ -117,13 +117,13 @@ def test_map_low_rise_row_to_db_record():
     assert rec["state_line_name"] == "Còn hàng"
     assert rec["fund_groups_sell_name"] == "Quỹ độc quyền"
     assert rec["fund_type"] == "Quỹ đối tác"
-    assert rec["partner"] == "VHS"
+    assert rec["partner"] == "Vhub"
     assert rec["product_images"] == ["https://drive.google.com/file/d/img1/view"]
     assert rec["pricing_sheet_images"] == ["https://drive.google.com/file/d/ptg1/view"]
     assert rec["x_link_layout_design"] == "https://drive.google.com/file/d/combo1/view"
 
     meta = rec["metadata"]
-    assert meta["partner"] == "VHS"
+    assert meta["partner"] == "Vhub"
     assert meta["allocationDate"] == "2026-11-01"
     assert meta["filterKeys"]["typeKey"] == "lk"
     assert meta["filterKeys"]["subdivisionKey"] == "daongoc"

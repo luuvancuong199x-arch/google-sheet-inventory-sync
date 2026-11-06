@@ -345,8 +345,10 @@ def _map_fund_info(fund_val: Any, agency_val: Any) -> Tuple[str, str, Optional[s
 
     if "quỹ chung" in fund_low or "quy chung" in fund_low or "quỹ chung" in ag_low or "quy chung" in ag_low or "cđt" in ag_low:
         return "Quỹ chung", "Quỹ CĐT", None
-    if "độc quyền" in fund_low or "doc quyen" in fund_low or "vhub" in ag_low:
+    if re.search(r"\bvhub\b|v\s*-\s*hub", ag_low, re.IGNORECASE):
         return "Quỹ độc quyền", "Quỹ đối tác", (clean_agency or None)
+    if "độc quyền" in fund_low or "doc quyen" in fund_low:
+        return "Quỹ chéo", "Quỹ đối tác", (clean_agency or None)
     return (fund_raw or "Quỹ chéo"), "Quỹ đối tác", (clean_agency or None)
 
 

@@ -189,6 +189,14 @@ def smart_upsert_pool(
             exp_info = compute_expiry_warning(old_issue)
             row_vals[expiry_col_idx] = exp_info["display"]
 
+        # Chuẩn hóa lại cột Nhóm quỹ cho các dòng được bảo toàn:
+        # Nếu đại lý không phải Vhub mà cột Nhóm quỹ còn ghi 'Quỹ độc quyền' từ dữ liệu cũ -> chuyển về 'Quỹ chéo'
+        fund_col_idx = 32 if is_low_rise else 28
+        if len(row_vals) > fund_col_idx:
+            cur_fg = str(row_vals[fund_col_idx] or '').strip()
+            if re.search(r'độc\s*quyền|doc\s*quyen', cur_fg, re.IGNORECASE) and not re.search(r'\bvhub\b|v\s*-\s*hub', clean_old_agency, re.IGNORECASE):
+                row_vals[fund_col_idx] = 'Quỹ chéo'
+
         master_pool[key] = row_vals
 
     # 3. Cập nhật các căn vừa quét vào master_pool

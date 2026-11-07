@@ -156,14 +156,7 @@ def smart_upsert_pool(
 
     # Cập nhật trạng thái cho nguồn chiến thắng
     for key, target in best_scanned_by_key.items():
-        chua_idx = 7 if is_low_rise else 13
-        full_idx = 10 if is_low_rise else 14
-        has_price = bool(str(target["row_values"][chua_idx] or '').strip() or str(target["row_values"][full_idx] or '').strip())
-        if not has_price:
-            target["status"] = "Đã bán"
-            target["row_values"][status_col_idx] = "Đã bán"
-        else:
-            target["row_values"][status_col_idx] = target["status"]
+        target["row_values"][status_col_idx] = target["status"]
 
     # 2. Khởi tạo kho dữ liệu tổng hợp dựa trên existing_pool
     # Bảo toàn các căn từ các đại lý gặp sự cố mạng (không nằm trong successful_agencies)
@@ -178,22 +171,6 @@ def smart_upsert_pool(
         old_st = str(row_vals[status_col_idx] if len(row_vals) > status_col_idx else '').strip()
 
         if successful_upper and (not clean_old_agency or clean_old_agency.upper() in successful_upper):
-            # Nếu căn này trước đó là 'Còn hàng' hoặc 'Đang lock', nhưng trong đợt quét mới của đại lý thành công đã biến mất (bị xóa khỏi bảng hàng nguồn):
-            # -> Đánh dấu là 'Đã bán' và ghi nhận ngày chuyển bán hôm nay để bảo tồn và thống kê!
-            if old_st in ["Còn hàng", "Đang lock"]:
-                row_vals[status_col_idx] = "Đã bán"
-                cur_note = str(row_vals[note_idx] if len(row_vals) > note_idx else '').strip()
-                tag = f"[Đã bán {today_str}]" if today_str else "[Đã bán]"
-                if tag.lower() not in cur_note.lower():
-                    row_vals[note_idx] = f"{tag} Đã xóa khỏi bảng hàng nguồn. {cur_note}".strip()
-                master_pool[key] = row_vals
-                continue
-            elif old_st == "Đã bán":
-                # Bảo toàn căn đã bán nếu đã được đánh dấu bán trong hôm nay
-                cur_note = str(row_vals[note_idx] if len(row_vals) > note_idx else '').strip()
-                if today_str and f"[đã bán {today_str}]".lower() in cur_note.lower():
-                    master_pool[key] = row_vals
-                    continue
             continue
 
         # Bỏ qua các dòng dữ liệu rác cũ bị lệch cột ngày vào cột đại lý

@@ -366,17 +366,17 @@ def parse_agency_grid_data(
 
         unit_key = unit_code
 
-        # 1. Kiểm tra dòng bị ẩn (hiddenByUser hoặc hiddenByFilter hoặc ws.row_dimensions.hidden)
-        is_row_hidden = bool(row_hidden_flags and r < len(row_hidden_flags) and row_hidden_flags[r])
-
-        # 2. Kiểm tra màu nền của dòng (quét toàn bộ các ô trong dòng)
-        row_colors = [c.get('color_type', 'neutral') for c in row if isinstance(c, dict)]
-        is_red = ('red' in row_colors)
-        is_yellow = ('yellow' in row_colors)
-
-        # 2b. Kiểm tra gạch ngang (strikethrough) và chữ đỏ (red foreground)
-        has_strikethrough = any(bool(c.get('is_strikethrough')) for c in row if isinstance(c, dict))
-        has_red_text = any(bool(c.get('is_fg_red')) for c in row if isinstance(c, dict))
+        # 1. Gạch ngang (strikethrough) chỉ xét trên ô mã căn hoặc ô trạng thái (tránh gạch ngang ở ghi chú/giá cũ)
+        unit_c_idx = cm.get('unit_code', -1)
+        status_c_idx = cm.get('status', -1)
+        has_strikethrough = False
+        if isinstance(row, list):
+            for c_idx in (unit_c_idx, status_c_idx):
+                if c_idx is not None and 0 <= c_idx < len(row):
+                    c = row[c_idx]
+                    if isinstance(c, dict) and c.get('is_strikethrough'):
+                        has_strikethrough = True
+                        break
 
         # 3. Giá các loại để nhận diện có thông tin mở bán thực tế hay không
         gia_chua_vat = normalize_price_to_vnd(get_val(row, cm['gia_chua_vat']))
@@ -427,21 +427,17 @@ def parse_agency_grid_data(
         is_sold_signal = bool(
             in_sold_section or
             is_sold_keyword or
-            has_strikethrough or
-            has_red_text
+            has_strikethrough
         )
         is_lock_signal = bool(
             re.search(r'\block|đang lock|dang lock|giữ chỗ|giu cho', combined_status, re.IGNORECASE)
         )
 
-        # Quy tắc xác định trạng thái theo yêu cầu:
-        # - Bị bôi đỏ HOẶC dòng bị ẩn HOẶC nguồn ghi rõ đã bán HOẶC gạch ngang HOẶC chữ đỏ -> 'Đã bán'
-        # - Không có cả 'Giá chưa gồm VAT' lẫn 'Giá gồm VAT và KPBT' -> 'Đã bán'
-        # - Chỉ nhận 'Đang lock' nếu nguồn ghi rõ trạng thái lock trong văn bản (KHÔNG xác định dựa trên màu ô)
-        # - Không xác định được lock cụ thể -> Mặc định là 'Còn hàng'
-        if is_red or is_row_hidden or is_sold_signal:
-            resolved_status = 'Đã bán'
-        elif not has_valid_price:
+        # BỎ HOÀN TOÀN LOGIC XỬ LÝ MÀU ĐỂ XÁC ĐỊNH BÁN (is_red, has_red_text) THEO CHỈ ĐẠO:
+        # Không dùng màu nền, không dùng màu chữ, không dùng màu vàng (is_yellow),
+        # và không ép căn thiếu giá thành Đã bán.
+        # Trạng thái chỉ xác định dựa trên văn bản rõ ràng, gạch ngang mã căn, hoặc section Đã bán:
+        if is_sold_signal:
             resolved_status = 'Đã bán'
         elif is_lock_signal:
             resolved_status = 'Đang lock'

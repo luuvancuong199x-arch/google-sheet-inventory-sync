@@ -696,11 +696,11 @@ def test_sold_today_persistence_across_cycles():
     assert stats_2["agency_stats"]["AGENCY A"]["sold_today"] == 1
 
 
-def test_removed_active_unit_marked_sold_and_counted_today():
+def test_transition_to_sold_tracked_today():
     """
-    Kiểm tra trường hợp đại lý xóa căn khỏi bảng hàng nguồn:
+    Kiểm tra khi căn chuyển trạng thái sang Đã bán trong ngày:
     - Căn LK-ACTIVE trước đó Còn hàng.
-    - Agency A quét thành công nhưng KHÔNG CÒN LK-ACTIVE trong danh sách quét.
+    - Agency A quét ra LK-ACTIVE với trạng thái Đã bán (qua từ khóa / gạch ngang).
     -> Căn này phải được chuyển sang Đã bán, gắn tag [Đã bán hôm nay] và tính vào sold_today!
     """
     today = "07/11/2026"
@@ -710,14 +710,13 @@ def test_removed_active_unit_marked_sold_and_counted_today():
             "row_values": [1, "Khu A", "LK-ACTIVE", "Thô", "LK", 100, 200, 5000000000] + [""] * 22 + ["", "Còn hàng", "Quỹ chéo", "Agency A", "01/11/2026", "Còn 24 ngày"] + [""] * 3
         }
     }
-    # Agency A quét thành công nhưng bảng hàng chỉ còn LK-OTHER
     scanned = [
         {
-            "unit_key": "LK-OTHER",
+            "unit_key": "LK-ACTIVE",
             "agency_name": "Agency A",
             "is_exclusive": False,
-            "status": "Còn hàng",
-            "row_values": [0, "Khu A", "LK-OTHER", "Thô", "LK", 100, 200, 5000000000] + [""] * 22 + ["", "Còn hàng", "Quỹ chéo", "Agency A", "07/11/2026", "Còn 30 ngày"] + [""] * 3
+            "status": "Đã bán",
+            "row_values": [0, "Khu A", "LK-ACTIVE", "Thô", "LK", 100, 200, 5000000000] + [""] * 22 + ["", "Đã bán", "Quỹ chéo", "Agency A", "07/11/2026", "Còn 30 ngày"] + [""] * 3
         }
     ]
 

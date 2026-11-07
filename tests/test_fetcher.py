@@ -44,7 +44,7 @@ def test_red_yellow_hidden_status_resolution():
     headers = ["STT", "Phân khu", "Mã căn", "DT đất", "Giá bán", "Trạng thái"]
     grid_rows = [
         [{"formattedValue": h} for h in headers],
-        # Row 1: Red background -> Đã bán
+        # Row 1: Red background nhưng không có chữ bán -> 'Còn hàng' (không tự nhận Đã bán theo màu đỏ nữa)
         [{"formattedValue": "1", "color_type": "red"}, {"formattedValue": "Khu A"}, {"formattedValue": "LK-01"}, {"formattedValue": "100"}, {"formattedValue": "5000000000"}, {"formattedValue": ""}],
         # Row 2: Yellow background nhưng không có chữ lock -> Mặc định 'Còn hàng' (không tự nhận lock theo màu vàng nữa)
         [{"formattedValue": "2", "color_type": "yellow"}, {"formattedValue": "Khu A"}, {"formattedValue": "LK-02"}, {"formattedValue": "100"}, {"formattedValue": "5000000000"}, {"formattedValue": ""}],
@@ -54,7 +54,7 @@ def test_red_yellow_hidden_status_resolution():
         [{"formattedValue": "4"}, {"formattedValue": "Khu A"}, {"formattedValue": "LK-04"}, {"formattedValue": "100"}, {"formattedValue": "5000000000"}, {"formattedValue": ""}],
         # Row 5: Nguồn ghi rõ lock -> Đang lock
         [{"formattedValue": "5"}, {"formattedValue": "Khu A"}, {"formattedValue": "LK-05"}, {"formattedValue": "100"}, {"formattedValue": "5000000000"}, {"formattedValue": "Đang lock"}],
-        # Row 6: Dòng bị ẩn -> Đã bán
+        # Row 6: Dòng bị ẩn nhưng không có chữ bán -> 'Còn hàng' (tránh lỗi khi người dùng bật Filter View)
         [{"formattedValue": "6"}, {"formattedValue": "Khu A"}, {"formattedValue": "LK-06"}, {"formattedValue": "100"}, {"formattedValue": "5000000000"}, {"formattedValue": ""}],
     ]
     # Row 6 (index 6 trong grid_rows) bị ẩn
@@ -71,18 +71,18 @@ def test_red_yellow_hidden_status_resolution():
     )
 
     by_key = {u["unit_key"]: u["status"] for u in parsed}
-    assert by_key["LK-01"] == "Đã bán"
+    assert by_key["LK-01"] == "Còn hàng"  # Màu đỏ không chốt Đã bán
     assert by_key["LK-02"] == "Còn hàng"  # Vàng không còn là lock
-    assert by_key["LK-03"] == "Đã bán"
+    assert by_key["LK-03"] == "Đã bán"    # Văn bản rõ ràng Đã bán
     assert by_key["LK-04"] == "Còn hàng"
-    assert by_key["LK-05"] == "Đang lock"
-    assert by_key["LK-06"] == "Đã bán"  # Ẩn dòng là Đã bán
+    assert by_key["LK-05"] == "Đang lock" # Văn bản rõ ràng Đang lock
+    assert by_key["LK-06"] == "Còn hàng"  # Ẩn dòng không chốt Đã bán
 
-def test_no_price_becomes_sold():
+def test_no_price_keeps_available():
     headers = ["STT", "Phân khu", "Mã căn", "DT đất", "Giá bán"]
     grid_rows = [
         [{"formattedValue": h} for h in headers],
-        # Có DT đất nhưng không có Giá bán -> Tự động 'Đã bán'
+        # Có DT đất nhưng chưa có Giá bán -> Không ép Đã bán, giữ 'Còn hàng'
         [{"formattedValue": "1"}, {"formattedValue": "Khu A"}, {"formattedValue": "LK-05"}, {"formattedValue": "100"}, {"formattedValue": ""}],
         # Có cả DT đất và Giá bán -> 'Còn hàng'
         [{"formattedValue": "2"}, {"formattedValue": "Khu A"}, {"formattedValue": "LK-06"}, {"formattedValue": "100"}, {"formattedValue": "4500000000"}],
@@ -96,7 +96,7 @@ def test_no_price_becomes_sold():
         today_str="03/11/2026"
     )
     by_key = {u["unit_key"]: u["status"] for u in parsed}
-    assert by_key["LK-05"] == "Đã bán"
+    assert by_key["LK-05"] == "Còn hàng"
     assert by_key["LK-06"] == "Còn hàng"
 
 def test_agency_without_exclusive_column_defaults_to_exclusive():
@@ -463,15 +463,15 @@ def test_strikethrough_triggers_sold_status():
     assert parsed[0]["row_values"][31] == "Đã bán"
 
 
-def test_red_text_foreground_triggers_sold_status():
-    """Kiểm tra ô có màu chữ đỏ (is_fg_red) chuyển trạng thái thành Đã bán."""
+def test_color_does_not_trigger_sold_status():
+    """Kiểm tra màu chữ đỏ (is_fg_red) hoặc màu nền (color_type='red') KHÔNG làm đổi trạng thái thành Đã bán."""
     headers = ["STT", "Mã căn", "Giá full", "Trạng thái"]
     grid_rows = [
         [{"formattedValue": h} for h in headers],
         [
             {"formattedValue": "1", "is_fg_red": False},
-            {"formattedValue": "LK-02", "is_fg_red": True},
-            {"formattedValue": "5.000.000.000", "is_fg_red": False},
+            {"formattedValue": "LK-02", "is_fg_red": True, "color_type": "red"},
+            {"formattedValue": "5.000.000.000", "color_type": "red"},
             {"formattedValue": "Còn hàng", "is_fg_red": False},
         ]
     ]
@@ -484,8 +484,8 @@ def test_red_text_foreground_triggers_sold_status():
         today_str="07/11/2026"
     )
     assert len(parsed) == 1
-    assert parsed[0]["status"] == "Đã bán"
-    assert parsed[0]["row_values"][31] == "Đã bán"
+    assert parsed[0]["status"] == "Còn hàng"
+    assert parsed[0]["row_values"][31] == "Còn hàng"
 
 
 def test_extended_sold_keywords():

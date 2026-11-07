@@ -38,11 +38,16 @@ def make_sort_key(row: List[Any], is_low_rise: bool) -> tuple:
     agency_col_idx = 33 if is_low_rise else 29
     status_col_idx = 31 if is_low_rise else 27
     unit_code_col_idx = 2 if is_low_rise else 1
+    fund_col_idx = 32 if is_low_rise else 28
 
     agency_raw = str(row[agency_col_idx] if len(row) > agency_col_idx else '')
     clean_agency = extract_clean_agency_name(agency_raw).strip().upper()
+    fund_raw = str(row[fund_col_idx] if len(row) > fund_col_idx else '').strip()
 
-    is_qc = bool(re.search(r'quỹ chung|quy chung|quỹ cđt|quy cdt', clean_agency, re.IGNORECASE))
+    is_qc = bool(
+        re.search(r'quỹ chung|quy chung|quỹ cđt|quy cdt', clean_agency, re.IGNORECASE)
+        or re.search(r'quỹ chung|quy chung', fund_raw, re.IGNORECASE)
+    )
     group_rank = 0 if is_qc else 1
 
     status_raw = str(row[status_col_idx] if len(row) > status_col_idx else '').strip().lower()
@@ -62,6 +67,29 @@ def make_sort_key(row: List[Any], is_low_rise: bool) -> tuple:
     unit_code_raw = str(row[unit_code_col_idx] if len(row) > unit_code_col_idx else '').strip()
 
     return (is_sold, group_rank, clean_agency, status_rank, natural_sort_key(unit_code_raw))
+
+def is_same_fund_group(f1: str, f2: str) -> bool:
+    """Kiểm tra hai nhãn nhóm quỹ có tương đương về mặt ngữ nghĩa hay không."""
+    f1_clean = str(f1 or '').strip().lower()
+    f2_clean = str(f2 or '').strip().lower()
+    if f1_clean == f2_clean:
+        return True
+    # Độc quyền đại lý bên ngoài vs Quỹ chéo (cùng nhóm quyền phân phối đại lý)
+    is_f1_cheo = bool(re.search(r'quỹ chéo|quy cheo|độc quyền|doc quyen', f1_clean) and not re.search(r'quỹ độc quyền|quy doc quyen', f1_clean))
+    is_f2_cheo = bool(re.search(r'quỹ chéo|quy cheo|độc quyền|doc quyen', f2_clean) and not re.search(r'quỹ độc quyền|quy doc quyen', f2_clean))
+    if is_f1_cheo and is_f2_cheo:
+        return True
+    # Quỹ chung
+    is_f1_qc = bool(re.search(r'quỹ chung|quy chung', f1_clean))
+    is_f2_qc = bool(re.search(r'quỹ chung|quy chung', f2_clean))
+    if is_f1_qc and is_f2_qc:
+        return True
+    # Quỹ độc quyền Vhub
+    is_f1_vhub = bool(re.search(r'quỹ độc quyền|quy doc quyen', f1_clean))
+    is_f2_vhub = bool(re.search(r'quỹ độc quyền|quy doc quyen', f2_clean))
+    if is_f1_vhub and is_f2_vhub:
+        return True
+    return False
 
 def count_filled_prices(row_values: List[Any], is_low_rise: bool) -> int:
     """Đếm số trường giá đã được điền thông tin."""
@@ -124,13 +152,18 @@ def smart_upsert_pool(
     expiry_col_idx = 35 if is_low_rise else 31
     agency_col_idx = 33 if is_low_rise else 29
 
-    # 1. Deduplicate các căn vừa quét trong đợt này theo xếp hạng thẩm quyền
-    best_scanned_by_key = {}
+    # 1. Gom nhóm toàn bộ candidates vừa quét trong đợt này theo unit_key
+    candidates_by_key = {}
     for item in scanned_units:
-        key = item["unit_key"]
+        key = item.get("unit_key")
         if not key:
             continue
+        candidates_by_key.setdefault(key, []).append(item)
 
+    best_scanned_by_key = {}
+    fund_col_idx = 32 if is_low_rise else 28
+
+    for key, candidates in candidates_by_key.items():
         # Kiểm tra thông tin chủ sở hữu cũ trong existing_pool
         existing_owner = ""
         is_within_exclusive_period = False
@@ -145,19 +178,86 @@ def smart_upsert_pool(
                 if days_el is not None and days_el < 30:
                     is_within_exclusive_period = True
 
-        if key not in best_scanned_by_key:
-            best_scanned_by_key[key] = item
+        # Phân loại các candidates theo nguồn
+        vhub_candidates = []
+        official_qc_candidates = []
+        regular_candidates = []
+        clean_agencies = set()
+        active_clean_agencies = set()
+
+        for c in candidates:
+            ag_raw = c.get("agency_name")
+            if not ag_raw and len(c.get("row_values", [])) > agency_col_idx:
+                ag_raw = c["row_values"][agency_col_idx]
+            ag_clean = extract_clean_agency_name(ag_raw or '').strip()
+            ag_upper = ag_clean.upper()
+
+            is_c_vhub = bool(c.get("is_vhub") or re.search(r'\bvhub\b|v\s*-\s*hub', ag_clean, re.IGNORECASE))
+            is_c_qc = bool(c.get("is_general_pool") or re.search(r'quỹ chung|quy chung|quỹ cđt|quy cdt', ag_clean, re.IGNORECASE))
+            is_active = (c.get("status") in ["Còn hàng", "Đang lock"])
+
+            if is_c_vhub:
+                vhub_candidates.append(c)
+            elif is_c_qc:
+                official_qc_candidates.append(c)
+            else:
+                regular_candidates.append(c)
+                if ag_upper:
+                    clean_agencies.add(ag_upper)
+                    if is_active:
+                        active_clean_agencies.add(ag_upper)
+
+        is_multi_agency = (len(active_clean_agencies) >= 2) or (len(active_clean_agencies) == 0 and len(clean_agencies) >= 2)
+
+        # XÁC ĐỊNH CANDIDATE CHIẾN THẮNG VÀ NHÓM QUỸ (FUND GROUP):
+        # ----------------------------------------------------
+        # Cấp 1: Quỹ độc quyền Vhub (is_vhub) -> ƯU TIÊN SỐ 1 CAO NHẤT
+        # Khi Vhub có căn đó, căn đó LUÔN thuộc "Quỹ độc quyền", không bao giờ bị các đại lý khác hay nguồn quỹ chung ghi đè.
+        if vhub_candidates:
+            winning_candidate = max(
+                vhub_candidates,
+                key=lambda c: get_candidate_rank(c, is_low_rise, existing_owner, is_within_exclusive_period)
+            )
+            c_fg = str(winning_candidate.get("fund_group") or (winning_candidate["row_values"][fund_col_idx] if len(winning_candidate.get("row_values", [])) > fund_col_idx else "")).strip()
+            if re.search(r'quỹ chung|quy chung|^\s*qc\s*$', c_fg, re.IGNORECASE):
+                winning_fund_group = "Quỹ chung"
+            else:
+                winning_fund_group = "Quỹ độc quyền"
+
+        # Cấp 2: Quỹ chung
+        # Áp dụng khi:
+        # a) Có nguồn Quỹ chung / Quỹ CĐT chính thức được khai báo rõ ràng (official_qc_candidates)
+        # b) Hoặc căn xuất hiện đồng thời từ >= 2 đại lý thông thường khác nhau (is_multi_agency)
+        elif official_qc_candidates or is_multi_agency:
+            winning_fund_group = "Quỹ chung"
+            all_pool = official_qc_candidates if official_qc_candidates else candidates
+            winning_candidate = max(
+                all_pool,
+                key=lambda c: get_candidate_rank(c, is_low_rise, existing_owner, is_within_exclusive_period)
+            )
+
+        # Cấp 3: Không có Vhub, không có Quỹ chung chính thức, chỉ có đúng 1 đại lý thông thường
         else:
-            cur = best_scanned_by_key[key]
-            item_rank = get_candidate_rank(item, is_low_rise, existing_owner, is_within_exclusive_period)
-            cur_rank = get_candidate_rank(cur, is_low_rise, existing_owner, is_within_exclusive_period)
+            winning_candidate = max(
+                candidates,
+                key=lambda c: get_candidate_rank(c, is_low_rise, existing_owner, is_within_exclusive_period)
+            )
+            c_fg = str(winning_candidate.get("fund_group") or (winning_candidate["row_values"][fund_col_idx] if len(winning_candidate.get("row_values", [])) > fund_col_idx else "")).strip()
+            if re.search(r'quỹ chung|quy chung|^\s*qc\s*$', c_fg, re.IGNORECASE):
+                winning_fund_group = "Quỹ chung"
+            else:
+                winning_fund_group = c_fg or "Quỹ chéo"
 
-            if item_rank > cur_rank:
-                best_scanned_by_key[key] = item
+        # Cập nhật trạng thái và nhóm quỹ cho candidate chiến thắng
+        w_row = list(winning_candidate["row_values"])
+        while len(w_row) < target_len:
+            w_row.append("")
+        w_row[fund_col_idx] = winning_fund_group
+        w_row[status_col_idx] = winning_candidate["status"]
+        winning_candidate["row_values"] = w_row
+        winning_candidate["fund_group"] = winning_fund_group
 
-    # Cập nhật trạng thái cho nguồn chiến thắng
-    for key, target in best_scanned_by_key.items():
-        target["row_values"][status_col_idx] = target["status"]
+        best_scanned_by_key[key] = winning_candidate
 
     # 2. Khởi tạo kho dữ liệu tổng hợp dựa trên existing_pool
     # Bảo toàn các căn từ các đại lý gặp sự cố mạng (không nằm trong successful_agencies)
@@ -257,13 +357,18 @@ def smart_upsert_pool(
                 if cur_note:
                     scanned_row[note_idx] = re.sub(r'\[Đã bán(?:\s+\d{2}/\d{2}/\d{4})?\]\s*', '', cur_note, flags=re.IGNORECASE).strip()
 
-            if old_agency and new_agency and old_agency != new_agency:
-                # Điều chuyển giỏ hàng sang đại lý mới hoặc Quỹ chung:
+            old_fund_fg = str(old_row[fund_col_idx] if len(old_row) > fund_col_idx else "").strip()
+            new_fund_fg = str(scanned_row[fund_col_idx] if len(scanned_row) > fund_col_idx else "").strip()
+            is_owner_changed = bool(old_agency and new_agency and old_agency != new_agency)
+            is_fund_changed = bool(old_fund_fg and new_fund_fg and not is_same_fund_group(old_fund_fg, new_fund_fg))
+
+            if is_owner_changed or is_fund_changed:
+                # Điều chuyển giỏ hàng sang đại lý mới hoặc Quỹ chung, thu hồi hoặc chuyển đổi nhóm quỹ:
                 # Reset ngày cấp hàng = ngày hiện tại để tính chu kỳ 30 ngày mới cho chủ sở hữu mới
                 if not scanned_row[issue_date_col_idx] and today_str:
                     scanned_row[issue_date_col_idx] = today_str
             else:
-                # Cùng đại lý: Ưu tiên bảo toàn ngày cấp hàng ban đầu đã lưu trong kho cũ
+                # Cùng đại lý và nhóm quỹ: Ưu tiên bảo toàn ngày cấp hàng ban đầu đã lưu trong kho cũ
                 if old_issue_date:
                     if not scanned_row[issue_date_col_idx]:
                         scanned_row[issue_date_col_idx] = old_issue_date

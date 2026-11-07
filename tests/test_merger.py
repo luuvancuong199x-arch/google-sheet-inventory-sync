@@ -863,3 +863,230 @@ def test_vhub_and_official_qc_always_win_over_third_party_agencies():
     assert rows_vhub[0][32] == "Quỹ độc quyền"
     assert "Vhub" in rows_vhub[0][33]
 
+
+def test_multi_agency_auto_classified_as_quy_chung():
+    """
+    Căn hộ xuất hiện đồng thời ở >= 2 đại lý thông thường khác nhau (không phải Vhub),
+    không có link Quỹ chung CĐT chính thức:
+    -> Tự động nhận diện và gán là 'Quỹ chung'.
+    """
+    scanned_units = [
+        {
+            "unit_key": "LK-MULTI-01",
+            "agency_name": "Newstarland",
+            "is_exclusive": True,
+            "status": "Còn hàng",
+            "row_values": [0, "Khu A", "LK-MULTI-01", "Thô", "LK", 100, 200, 5000000000] + [""] * 22 + ["", "Còn hàng", "Quỹ chéo", "Newstarland", "07/11/2026", "Còn 30 ngày"] + [""] * 3
+        },
+        {
+            "unit_key": "LK-MULTI-01",
+            "agency_name": "Đất Xanh Miền Bắc",
+            "is_exclusive": True,
+            "status": "Còn hàng",
+            "row_values": [0, "Khu A", "LK-MULTI-01", "Thô", "LK", 100, 200, 5000000000] + [""] * 22 + ["", "Còn hàng", "Quỹ chéo", "Đất Xanh Miền Bắc", "07/11/2026", "Còn 30 ngày"] + [""] * 3
+        }
+    ]
+
+    rows = smart_upsert_pool({}, scanned_units, is_low_rise=True, today_str="07/11/2026")
+    assert len(rows) == 1
+    # Tự động gán là Quỹ chung
+    assert rows[0][32] == "Quỹ chung"
+
+
+def test_vhub_exclusive_priority_over_multi_agency():
+    """
+    Nếu 2 đại lý thông thường cùng bán căn LK-MULTI-02, NHƯNG Vhub cũng phân phối độc quyền:
+    -> Quỹ độc quyền Vhub LUÔN LÀ ƯU TIÊN CAO NHẤT, không bị chuyển thành Quỹ chung.
+    """
+    scanned_units = [
+        {
+            "unit_key": "LK-MULTI-02",
+            "agency_name": "Newstarland",
+            "is_exclusive": False,
+            "status": "Còn hàng",
+            "row_values": [0, "Khu A", "LK-MULTI-02", "Thô", "LK", 100, 200, 5000000000] + [""] * 22 + ["", "Còn hàng", "Quỹ chéo", "Newstarland", "07/11/2026", "Còn 30 ngày"] + [""] * 3
+        },
+        {
+            "unit_key": "LK-MULTI-02",
+            "agency_name": "Đất Xanh Miền Bắc",
+            "is_exclusive": False,
+            "status": "Còn hàng",
+            "row_values": [0, "Khu A", "LK-MULTI-02", "Thô", "LK", 100, 200, 5000000000] + [""] * 22 + ["", "Còn hàng", "Quỹ chéo", "Đất Xanh Miền Bắc", "07/11/2026", "Còn 30 ngày"] + [""] * 3
+        },
+        {
+            "unit_key": "LK-MULTI-02",
+            "agency_name": "Vhub",
+            "is_exclusive": True,
+            "is_vhub": True,
+            "status": "Còn hàng",
+            "row_values": [0, "Khu A", "LK-MULTI-02", "Thô", "LK", 100, 200, 5000000000] + [""] * 22 + ["", "Còn hàng", "Quỹ độc quyền", "Vhub", "07/11/2026", "Còn 30 ngày"] + [""] * 3
+        }
+    ]
+
+    rows = smart_upsert_pool({}, scanned_units, is_low_rise=True, today_str="07/11/2026")
+    assert len(rows) == 1
+    assert rows[0][32] == "Quỹ độc quyền"
+    assert "Vhub" in rows[0][33]
+
+
+def test_revoked_vhub_exclusive_converted_to_quy_chung():
+    """
+    Thu hồi độc quyền: Căn trước đó thuộc Quỹ độc quyền Vhub,
+    nhưng chu kỳ mới Vhub quét thành công và căn không còn ở Vhub nữa.
+    Căn này xuất hiện ở 2 đại lý khác (Newstarland & Đất Xanh) -> Chuyển thành 'Quỹ chung' và reset ngày cấp.
+    """
+    existing_pool = {
+        "LK-REVOKED-01": {
+            "unit_key": "LK-REVOKED-01",
+            "row_values": [1, "Khu A", "LK-REVOKED-01", "Thô", "LK", 100, 200, 5000000000] + [""] * 22 + ["", "Còn hàng", "Quỹ độc quyền", "VHUB", "01/11/2026", "Còn 24 ngày"] + [""] * 3
+        }
+    }
+    # Vhub quét thành công nhưng không có LK-REVOKED-01
+    scanned_units = [
+        {
+            "unit_key": "LK-REVOKED-01",
+            "agency_name": "Newstarland",
+            "is_exclusive": False,
+            "status": "Còn hàng",
+            "row_values": [0, "Khu A", "LK-REVOKED-01", "Thô", "LK", 100, 200, 5000000000] + [""] * 22 + ["", "Còn hàng", "Quỹ chéo", "Newstarland", "", ""] + [""] * 3
+        },
+        {
+            "unit_key": "LK-REVOKED-01",
+            "agency_name": "Đất Xanh Miền Bắc",
+            "is_exclusive": False,
+            "status": "Còn hàng",
+            "row_values": [0, "Khu A", "LK-REVOKED-01", "Thô", "LK", 100, 200, 5000000000] + [""] * 22 + ["", "Còn hàng", "Quỹ chéo", "Đất Xanh Miền Bắc", "", ""] + [""] * 3
+        }
+    ]
+
+    rows = smart_upsert_pool(
+        existing_pool,
+        scanned_units,
+        is_low_rise=True,
+        today_str="07/11/2026",
+        successful_agencies={"VHUB", "Newstarland", "Đất Xanh Miền Bắc"}
+    )
+    assert len(rows) == 1
+    row = rows[0]
+    assert row[2] == "LK-REVOKED-01"
+    # Chuyển thành Quỹ chung
+    assert row[32] == "Quỹ chung"
+    # Ngày cấp hàng được reset sang ngày hiện tại 07/11/2026
+    assert row[34] == "07/11/2026"
+
+
+def test_revoked_vhub_exclusive_converted_to_another_agency_exclusive():
+    """
+    Thu hồi độc quyền: Căn trước đó thuộc Quỹ độc quyền Vhub,
+    nhưng chu kỳ mới Vhub không còn căn đó. Căn này chỉ xuất hiện ở duy nhất 1 đại lý khác (Agency X).
+    -> Chuyển thành độc quyền bên khác (Quỹ chéo), đại lý là Agency X, reset ngày cấp hàng.
+    """
+    existing_pool = {
+        "LK-REVOKED-02": {
+            "unit_key": "LK-REVOKED-02",
+            "row_values": [1, "Khu A", "LK-REVOKED-02", "Thô", "LK", 100, 200, 5000000000] + [""] * 22 + ["", "Còn hàng", "Quỹ độc quyền", "VHUB", "01/11/2026", "Còn 24 ngày"] + [""] * 3
+        }
+    }
+    scanned_units = [
+        {
+            "unit_key": "LK-REVOKED-02",
+            "agency_name": "Agency X",
+            "is_exclusive": True,
+            "status": "Còn hàng",
+            "row_values": [0, "Khu A", "LK-REVOKED-02", "Thô", "LK", 100, 200, 5000000000] + [""] * 22 + ["", "Còn hàng", "Quỹ chéo", "Agency X", "", ""] + [""] * 3
+        }
+    ]
+
+    rows = smart_upsert_pool(
+        existing_pool,
+        scanned_units,
+        is_low_rise=True,
+        today_str="07/11/2026",
+        successful_agencies={"VHUB", "Agency X"}
+    )
+    assert len(rows) == 1
+    row = rows[0]
+    assert row[2] == "LK-REVOKED-02"
+    assert row[32] == "Quỹ chéo"
+    assert row[33] == "Agency X"
+    assert row[34] == "07/11/2026"
+
+
+def test_revoked_vhub_exclusive_marked_sold_when_absent_from_all_agencies():
+    """
+    Thu hồi độc quyền và không ai bán nữa:
+    Căn trước đó thuộc Vhub. Chu kỳ mới Vhub quét thành công nhưng không còn căn này,
+    và không có đại lý nào khác có căn này -> Chuyển Đã bán, tính sold_today.
+    """
+    existing_pool = {
+        "LK-REVOKED-03": {
+            "unit_key": "LK-REVOKED-03",
+            "row_values": [1, "Khu A", "LK-REVOKED-03", "Thô", "LK", 100, 200, 5000000000] + [""] * 22 + ["", "Còn hàng", "Quỹ độc quyền", "VHUB", "01/11/2026", "Còn 24 ngày"] + [""] * 3
+        }
+    }
+    # Vhub quét thành công nhưng rỗng (hoặc chỉ có căn khác)
+    scanned_units = []
+
+    rows, stats = smart_upsert_pool(
+        existing_pool,
+        scanned_units,
+        is_low_rise=True,
+        today_str="07/11/2026",
+        successful_agencies={"VHUB"},
+        return_stats=True
+    )
+    assert len(rows) == 1
+    row = rows[0]
+    assert row[2] == "LK-REVOKED-03"
+    assert row[31] == "Đã bán"
+    assert "[Đã bán 07/11/2026] Đã xóa khỏi bảng hàng nguồn" in row[30]
+    assert stats["project_stats"]["sold_today"] == 1
+    assert stats["agency_stats"]["VHUB"]["sold_today"] == 1
+
+
+def test_vhub_reclaims_exclusive_from_quy_chung():
+    """
+    Tái cấp độc quyền: Căn trước đó ở Quỹ chung hoặc Quỹ chéo của đại lý khác.
+    Chu kỳ mới Vhub đưa vào quỹ độc quyền của Vhub:
+    -> Căn chuyển thành Quỹ độc quyền của Vhub, đại lý là Vhub, reset ngày cấp.
+    """
+    existing_pool = {
+        "LK-RECLAIM-01": {
+            "unit_key": "LK-RECLAIM-01",
+            "row_values": [1, "Khu A", "LK-RECLAIM-01", "Thô", "LK", 100, 200, 5000000000] + [""] * 22 + ["", "Còn hàng", "Quỹ chung", "Quỹ chung", "01/11/2026", "Còn 24 ngày"] + [""] * 3
+        }
+    }
+    scanned_units = [
+        {
+            "unit_key": "LK-RECLAIM-01",
+            "agency_name": "Quỹ chung",
+            "is_exclusive": False,
+            "is_general_pool": True,
+            "status": "Còn hàng",
+            "row_values": [0, "Khu A", "LK-RECLAIM-01", "Thô", "LK", 100, 200, 5000000000] + [""] * 22 + ["", "Còn hàng", "Quỹ chung", "Quỹ chung", "01/11/2026", "Còn 24 ngày"] + [""] * 3
+        },
+        {
+            "unit_key": "LK-RECLAIM-01",
+            "agency_name": "VHUB",
+            "is_exclusive": True,
+            "is_vhub": True,
+            "status": "Còn hàng",
+            "row_values": [0, "Khu A", "LK-RECLAIM-01", "Thô", "LK", 100, 200, 5000000000] + [""] * 22 + ["", "Còn hàng", "Quỹ độc quyền", "VHUB", "", ""] + [""] * 3
+        }
+    ]
+
+    rows = smart_upsert_pool(
+        existing_pool,
+        scanned_units,
+        is_low_rise=True,
+        today_str="07/11/2026",
+        successful_agencies={"Quỹ chung", "VHUB"}
+    )
+    assert len(rows) == 1
+    row = rows[0]
+    assert row[2] == "LK-RECLAIM-01"
+    assert row[32] == "Quỹ độc quyền"
+    assert row[33] == "VHUB"
+    assert row[34] == "07/11/2026"
+
+

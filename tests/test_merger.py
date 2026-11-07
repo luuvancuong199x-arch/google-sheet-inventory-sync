@@ -758,3 +758,108 @@ def test_sold_today_resets_on_next_day():
     today = "07/11/2026"
     rows, stats = smart_upsert_pool(existing_pool, scanned, is_low_rise=True, today_str=today, return_stats=True)
     assert stats["project_stats"]["sold_today"] == 0
+
+
+def test_removed_active_unit_marked_sold_and_counted_today():
+    """
+    Tiêu chí 3: Căn không xuất hiện ở những chu kỳ đồng bộ sau đó:
+    - Căn LK-ABSENT trước đó là 'Còn hàng'.
+    - Agency A quét thành công nhưng KHÔNG CÒN LK-ABSENT trong bảng hàng nguồn mới.
+    -> Căn này chuyển thành 'Đã bán' kèm ghi chú '[Đã bán {today_str}] Đã xóa khỏi bảng hàng nguồn', và tính vào sold_today!
+    """
+    today = "07/11/2026"
+    existing_pool = {
+        "LK-ABSENT": {
+            "unit_key": "LK-ABSENT",
+            "row_values": [1, "Khu A", "LK-ABSENT", "Thô", "LK", 100, 200, 5000000000] + [""] * 22 + ["", "Còn hàng", "Quỹ chéo", "Agency A", "01/11/2026", "Còn 24 ngày"] + [""] * 3
+        }
+    }
+    # Agency A quét thành công nhưng danh sách trả về chỉ có căn khác
+    scanned = [
+        {
+            "unit_key": "LK-OTHER",
+            "agency_name": "Agency A",
+            "is_exclusive": False,
+            "status": "Còn hàng",
+            "row_values": [0, "Khu A", "LK-OTHER", "Thô", "LK", 100, 200, 5000000000] + [""] * 22 + ["", "Còn hàng", "Quỹ chéo", "Agency A", "07/11/2026", "Còn 30 ngày"] + [""] * 3
+        }
+    ]
+
+    rows, stats = smart_upsert_pool(
+        existing_pool,
+        scanned,
+        is_low_rise=True,
+        today_str=today,
+        successful_agencies={"Agency A"},
+        return_stats=True
+    )
+    by_key = {r[2]: r for r in rows}
+    assert "LK-ABSENT" in by_key
+    assert by_key["LK-ABSENT"][31] == "Đã bán"
+    assert "[Đã bán 07/11/2026] Đã xóa khỏi bảng hàng nguồn" in by_key["LK-ABSENT"][30]
+    assert stats["project_stats"]["sold_today"] == 1
+    assert stats["agency_stats"]["AGENCY A"]["sold_today"] == 1
+
+
+def test_vhub_and_official_qc_always_win_over_third_party_agencies():
+    """
+    Quy tắc thẩm quyền nguồn:
+    Nếu dự án có Quỹ độc quyền Vhub và Quỹ chung được khai báo rõ ràng,
+    các sản phẩm ở các nguồn này LUÔN THẮNG và được ghi nhận là Độc quyền hoặc Quỹ chung.
+    Các đại lý khác dù có giá đầy đủ hơn cũng KHÔNG được đè nguồn Quỹ độc quyền Vhub hay Quỹ chung!
+    """
+    # Trường hợp 1: Quỹ chung vs Đại lý bên ngoài có nhiều trường giá
+    scanned_qc = [
+        {
+            "unit_key": "LK-SHARED-01",
+            "agency_name": "Agency Khác",
+            "is_exclusive": False,
+            "is_vhub": False,
+            "is_general_pool": False,
+            "status": "Còn hàng",
+            "row_values": [0, "Khu A", "LK-SHARED-01", "Thô", "LK", 100, 200, 5000000000] + [""] * 22 + ["", "Còn hàng", "Quỹ chéo", "Agency Khác", "07/11/2026", "Còn 30 ngày"] + [""] * 3
+        },
+        {
+            "unit_key": "LK-SHARED-01",
+            "agency_name": "Quỹ chung",
+            "is_exclusive": False,
+            "is_vhub": False,
+            "is_general_pool": True,
+            "status": "Còn hàng",
+            # Quỹ chung không có giá
+            "row_values": [0, "Khu A", "LK-SHARED-01", "Thô", "LK", 100, 200, ""] + [""] * 22 + ["", "Còn hàng", "Quỹ chung", "Quỹ chung", "07/11/2026", "Còn 30 ngày"] + [""] * 3
+        }
+    ]
+    rows_qc = smart_upsert_pool({}, scanned_qc, is_low_rise=True, today_str="07/11/2026")
+    assert len(rows_qc) == 1
+    # Quỹ chung phải thắng!
+    assert rows_qc[0][32] == "Quỹ chung"
+    assert "Quỹ chung" in rows_qc[0][33]
+
+    # Trường hợp 2: Vhub độc quyền vs Quỹ chung và Agency Khác
+    scanned_vhub = [
+        {
+            "unit_key": "LK-VHUB-01",
+            "agency_name": "Quỹ chung",
+            "is_exclusive": False,
+            "is_vhub": False,
+            "is_general_pool": True,
+            "status": "Còn hàng",
+            "row_values": [0, "Khu A", "LK-VHUB-01", "Thô", "LK", 100, 200, 5000000000] + [""] * 22 + ["", "Còn hàng", "Quỹ chung", "Quỹ chung", "07/11/2026", "Còn 30 ngày"] + [""] * 3
+        },
+        {
+            "unit_key": "LK-VHUB-01",
+            "agency_name": "Vhub",
+            "is_exclusive": True,
+            "is_vhub": True,
+            "is_general_pool": False,
+            "status": "Còn hàng",
+            "row_values": [0, "Khu A", "LK-VHUB-01", "Thô", "LK", 100, 200, 5000000000] + [""] * 22 + ["", "Còn hàng", "Quỹ độc quyền", "Vhub", "07/11/2026", "Còn 30 ngày"] + [""] * 3
+        }
+    ]
+    rows_vhub = smart_upsert_pool({}, scanned_vhub, is_low_rise=True, today_str="07/11/2026")
+    assert len(rows_vhub) == 1
+    # Vhub phải thắng và là Quỹ độc quyền!
+    assert rows_vhub[0][32] == "Quỹ độc quyền"
+    assert "Vhub" in rows_vhub[0][33]
+

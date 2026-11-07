@@ -82,12 +82,13 @@ def get_candidate_rank(
 ) -> tuple:
     """
     Xác định mức độ ưu tiên giữa các nguồn khi deduplicate cùng 1 mã căn:
-    1. Có giá hợp lệ (Giá chưa VAT hoặc Giá full) -> Luôn ưu tiên hơn nguồn không có giá.
-    2. Nguồn Quỹ chung chính thức (từ file Quỹ chung dự án) -> Thẩm quyền cao nhất với các căn thuộc giỏ chung.
-    3. Nguồn Độc quyền -> Ưu tiên hơn các nguồn đại lý thông thường.
-    4. Trạng thái Khả dụng ('Còn hàng' hoặc 'Đang lock') -> Ưu tiên hơn nguồn đánh dấu 'Đã bán' hoặc bị ẩn hàng.
-    5. Số lượng trường giá được điền đầy đủ hơn (độ chi tiết dữ liệu giá, bóc tách đất/xây, ngân hàng).
-    6. Đại lý đang nắm giữ độc quyền hợp lệ (< 30 ngày) -> Ưu tiên bảo vệ chủ sở hữu cũ nếu cùng số trường giá.
+    1. Quỹ độc quyền Vhub (is_vhub) -> Nguồn độc quyền chính thức của Vhub LUÔN THẮNG mọi nguồn khác.
+    2. Quỹ chung chính thức (is_official_qc) -> Nguồn Quỹ chung được khai báo rõ ràng LUÔN THẮNG các đại lý thông thường.
+    3. Có giá hợp lệ (Giá chưa VAT hoặc Giá full) -> Ưu tiên hơn nguồn không có giá giữa các đại lý thông thường.
+    4. Nguồn Độc quyền -> Ưu tiên hơn các nguồn đại lý thông thường.
+    5. Trạng thái Khả dụng ('Còn hàng' hoặc 'Đang lock') -> Ưu tiên hơn nguồn đánh dấu 'Đã bán' hoặc bị ẩn hàng.
+    6. Số lượng trường giá được điền đầy đủ hơn (độ chi tiết dữ liệu giá, bóc tách đất/xây, ngân hàng).
+    7. Đại lý đang nắm giữ độc quyền hợp lệ (< 30 ngày) -> Ưu tiên bảo vệ chủ sở hữu cũ nếu cùng số trường giá.
     """
     chua_idx = 7 if is_low_rise else 13
     full_idx = 10 if is_low_rise else 14
@@ -96,12 +97,12 @@ def get_candidate_rank(
 
     item_agency = extract_clean_agency_name(item.get("agency_name") or '').strip().upper()
     is_vhub = bool(item.get("is_vhub") or re.search(r'\bvhub\b', item_agency, re.IGNORECASE))
-    is_official_qc = bool(re.search(r'quỹ chung|quy chung|quỹ cđt|quy cdt', item_agency, re.IGNORECASE))
+    is_official_qc = bool(item.get("is_general_pool") or re.search(r'quỹ chung|quy chung|quỹ cđt|quy cdt', item_agency, re.IGNORECASE))
     is_current_protected_owner = bool(is_within_exclusive_period and existing_owner and item_agency == existing_owner)
 
     is_active = (item.get("status") in ["Còn hàng", "Đang lock"])
     price_count = count_filled_prices(item["row_values"], is_low_rise)
-    return (is_vhub, has_valid_price, is_official_qc, is_exclusive, is_active, price_count, is_current_protected_owner)
+    return (is_vhub, is_official_qc, has_valid_price, is_exclusive, is_active, price_count, is_current_protected_owner)
 
 def smart_upsert_pool(
     existing_pool_by_key: Dict[str, Dict[str, Any]],
@@ -171,6 +172,31 @@ def smart_upsert_pool(
         old_st = str(row_vals[status_col_idx] if len(row_vals) > status_col_idx else '').strip()
 
         if successful_upper and (not clean_old_agency or clean_old_agency.upper() in successful_upper):
+            # Đại lý này đã quét thành công trong chu kỳ hiện tại.
+            # Nếu căn không xuất hiện trong đợt quét mới (không nằm trong best_scanned_by_key):
+            if key not in best_scanned_by_key:
+                while len(row_vals) < target_len:
+                    row_vals.append("")
+
+                fund_col_idx = 32 if is_low_rise else 28
+                if len(row_vals) > fund_col_idx:
+                    cur_fg = str(row_vals[fund_col_idx] or '').strip()
+                    if re.search(r'độc\s*quyền|doc\s*quyen', cur_fg, re.IGNORECASE) and not re.search(r'\bvhub\b|v\s*-\s*hub', clean_old_agency, re.IGNORECASE):
+                        row_vals[fund_col_idx] = 'Quỹ chéo'
+
+                # Tiêu chí 3: Không xuất hiện ở những chu kỳ đồng bộ sau đó -> ĐÃ BÁN
+                if old_st in ["Còn hàng", "Đang lock"]:
+                    row_vals[status_col_idx] = "Đã bán"
+                    cur_note = str(row_vals[note_idx] if len(row_vals) > note_idx else '').strip()
+                    tag = f"[Đã bán {today_str}]" if today_str else "[Đã bán]"
+                    if tag.lower() not in cur_note.lower():
+                        row_vals[note_idx] = f"{tag} Đã xóa khỏi bảng hàng nguồn. {cur_note}".strip()
+                    master_pool[key] = row_vals
+                    continue
+                elif old_st == "Đã bán":
+                    # Đã bán từ trước, tiếp tục bảo toàn trong bảng hàng
+                    master_pool[key] = row_vals
+                    continue
             continue
 
         # Bỏ qua các dòng dữ liệu rác cũ bị lệch cột ngày vào cột đại lý

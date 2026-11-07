@@ -71,12 +71,12 @@ def test_red_yellow_hidden_status_resolution():
     )
 
     by_key = {u["unit_key"]: u["status"] for u in parsed}
-    assert by_key["LK-01"] == "Còn hàng"  # Màu đỏ không chốt Đã bán
+    assert by_key["LK-01"] == "Đã bán"    # Màu nền đỏ chuyển Đã bán
     assert by_key["LK-02"] == "Còn hàng"  # Vàng không còn là lock
     assert by_key["LK-03"] == "Đã bán"    # Văn bản rõ ràng Đã bán
     assert by_key["LK-04"] == "Còn hàng"
     assert by_key["LK-05"] == "Đang lock" # Văn bản rõ ràng Đang lock
-    assert by_key["LK-06"] == "Còn hàng"  # Ẩn dòng không chốt Đã bán
+    assert by_key["LK-06"] == "Đã bán"    # Bị ẩn thì luôn là Đã bán
 
 def test_no_price_keeps_available():
     headers = ["STT", "Phân khu", "Mã căn", "DT đất", "Giá bán"]
@@ -463,15 +463,40 @@ def test_strikethrough_triggers_sold_status():
     assert parsed[0]["row_values"][31] == "Đã bán"
 
 
-def test_color_does_not_trigger_sold_status():
-    """Kiểm tra màu chữ đỏ (is_fg_red) hoặc màu nền (color_type='red') KHÔNG làm đổi trạng thái thành Đã bán."""
+def test_red_background_triggers_sold_status():
+    """Kiểm tra màu nền đỏ (color_type='red') chuyển trạng thái thành Đã bán."""
+    headers = ["STT", "Mã căn", "Giá full", "Trạng thái"]
+    grid_rows = [
+        [{"formattedValue": h} for h in headers],
+        [
+            {"formattedValue": "1"},
+            {"formattedValue": "LK-02", "color_type": "red"},
+            {"formattedValue": "5.000.000.000", "color_type": "red"},
+            {"formattedValue": "Còn hàng"},
+        ]
+    ]
+    parsed = parse_agency_grid_data(
+        grid_rows,
+        agency_name="Agency Test",
+        project_key="HLX",
+        is_low_rise=True,
+        existing_pool_keys=set(),
+        today_str="07/11/2026"
+    )
+    assert len(parsed) == 1
+    assert parsed[0]["status"] == "Đã bán"
+    assert parsed[0]["row_values"][31] == "Đã bán"
+
+
+def test_red_text_foreground_does_not_trigger_sold_status():
+    """Kiểm tra màu chữ đỏ (is_fg_red) KHÔNG tính là Đã bán (giữ Còn hàng nếu không có nền đỏ hay từ khóa bán)."""
     headers = ["STT", "Mã căn", "Giá full", "Trạng thái"]
     grid_rows = [
         [{"formattedValue": h} for h in headers],
         [
             {"formattedValue": "1", "is_fg_red": False},
-            {"formattedValue": "LK-02", "is_fg_red": True, "color_type": "red"},
-            {"formattedValue": "5.000.000.000", "color_type": "red"},
+            {"formattedValue": "LK-03", "is_fg_red": True, "color_type": "neutral"},
+            {"formattedValue": "5.000.000.000", "is_fg_red": False, "color_type": "neutral"},
             {"formattedValue": "Còn hàng", "is_fg_red": False},
         ]
     ]

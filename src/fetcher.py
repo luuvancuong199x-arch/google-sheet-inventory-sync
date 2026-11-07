@@ -366,7 +366,14 @@ def parse_agency_grid_data(
 
         unit_key = unit_code
 
-        # 1. Gạch ngang (strikethrough) chỉ xét trên ô mã căn hoặc ô trạng thái (tránh gạch ngang ở ghi chú/giá cũ)
+        # 1. Dòng bị ẩn (hiddenByUser hoặc hiddenByFilter hoặc ws.row_dimensions.hidden) -> Luôn là Đã bán
+        is_row_hidden = bool(row_hidden_flags and r < len(row_hidden_flags) and row_hidden_flags[r])
+
+        # 2. Màu nền của dòng: chỉ xét màu nền đỏ (color_type == 'red'). Tuyệt đối KHÔNG tính màu chữ (is_fg_red)
+        row_colors = [c.get('color_type', 'neutral') for c in row if isinstance(c, dict)]
+        is_red = ('red' in row_colors)
+
+        # 3. Gạch ngang (strikethrough) chỉ xét trên ô mã căn hoặc ô trạng thái (tránh gạch ngang ở ghi chú/giá cũ)
         unit_c_idx = cm.get('unit_code', -1)
         status_c_idx = cm.get('status', -1)
         has_strikethrough = False
@@ -433,11 +440,12 @@ def parse_agency_grid_data(
             re.search(r'\block|đang lock|dang lock|giữ chỗ|giu cho', combined_status, re.IGNORECASE)
         )
 
-        # BỎ HOÀN TOÀN LOGIC XỬ LÝ MÀU ĐỂ XÁC ĐỊNH BÁN (is_red, has_red_text) THEO CHỈ ĐẠO:
-        # Không dùng màu nền, không dùng màu chữ, không dùng màu vàng (is_yellow),
-        # và không ép căn thiếu giá thành Đã bán.
-        # Trạng thái chỉ xác định dựa trên văn bản rõ ràng, gạch ngang mã căn, hoặc section Đã bán:
-        if is_sold_signal:
+        # Quy tắc chuẩn hóa căn đã bán (4 tiêu chí theo chỉ đạo):
+        # 1. Có trạng thái đã bán rõ ràng: văn bản rõ ràng, gạch ngang ô mã căn/trạng thái, hoặc section Đã bán (is_sold_signal)
+        # 2. Bị ẩn thì luôn là đã bán (is_row_hidden)
+        # 3. Không xuất hiện ở những chu kỳ đồng bộ sau đó (xử lý tại smart_upsert_pool)
+        # 4. Màu nền bị tô đỏ (is_red: color_type == 'red'). Tuyệt đối KHÔNG tính màu chữ đỏ (is_fg_red) và KHÔNG tính thiếu giá.
+        if is_sold_signal or is_row_hidden or is_red:
             resolved_status = 'Đã bán'
         elif is_lock_signal:
             resolved_status = 'Đang lock'
@@ -658,6 +666,7 @@ def parse_agency_grid_data(
             "agency_url": agency_url,
             "is_exclusive": is_exclusive,
             "is_vhub": is_vhub,
+            "is_general_pool": is_general_pool,
             "status": resolved_status,
             "issue_date": issue_date,
             "expiry_status": expiry_info["status"],

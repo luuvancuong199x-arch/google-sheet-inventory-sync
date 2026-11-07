@@ -169,12 +169,33 @@ def smart_upsert_pool(
     # Bảo toàn các căn từ các đại lý gặp sự cố mạng (không nằm trong successful_agencies)
     successful_upper = {extract_clean_agency_name(a).strip().upper() for a in (successful_agencies or set()) if a}
     master_pool = {}
+    note_idx = 30 if is_low_rise else 26
+
     for key, data in existing_pool_by_key.items():
         row_vals = list(data.get("row_values", []))
         old_agency_raw = str(row_vals[agency_col_idx] if len(row_vals) > agency_col_idx else '').strip()
         clean_old_agency = extract_clean_agency_name(old_agency_raw).strip()
+        old_st = str(row_vals[status_col_idx] if len(row_vals) > status_col_idx else '').strip()
+
         if successful_upper and (not clean_old_agency or clean_old_agency.upper() in successful_upper):
+            # Nếu căn này trước đó là 'Còn hàng' hoặc 'Đang lock', nhưng trong đợt quét mới của đại lý thành công đã biến mất (bị xóa khỏi bảng hàng nguồn):
+            # -> Đánh dấu là 'Đã bán' và ghi nhận ngày chuyển bán hôm nay để bảo tồn và thống kê!
+            if old_st in ["Còn hàng", "Đang lock"]:
+                row_vals[status_col_idx] = "Đã bán"
+                cur_note = str(row_vals[note_idx] if len(row_vals) > note_idx else '').strip()
+                tag = f"[Đã bán {today_str}]" if today_str else "[Đã bán]"
+                if tag.lower() not in cur_note.lower():
+                    row_vals[note_idx] = f"{tag} Đã xóa khỏi bảng hàng nguồn. {cur_note}".strip()
+                master_pool[key] = row_vals
+                continue
+            elif old_st == "Đã bán":
+                # Bảo toàn căn đã bán nếu đã được đánh dấu bán trong hôm nay
+                cur_note = str(row_vals[note_idx] if len(row_vals) > note_idx else '').strip()
+                if today_str and f"[đã bán {today_str}]".lower() in cur_note.lower():
+                    master_pool[key] = row_vals
+                    continue
             continue
+
         # Bỏ qua các dòng dữ liệu rác cũ bị lệch cột ngày vào cột đại lý
         if re.match(r'^\d{2}/\d{2}/\d{4}$', clean_old_agency):
             continue
@@ -205,11 +226,33 @@ def smart_upsert_pool(
         while len(scanned_row) < target_len:
             scanned_row.append("")
 
+        st_now = str(scanned_row[status_col_idx] or '').strip()
+
         if key in existing_pool_by_key:
             old_row = existing_pool_by_key[key].get("row_values", [])
             old_agency = extract_clean_agency_name(old_row[agency_col_idx] if len(old_row) > agency_col_idx else "").strip().upper()
             new_agency = extract_clean_agency_name(scanned_row[agency_col_idx] if len(scanned_row) > agency_col_idx else "").strip().upper()
             old_issue_date = old_row[issue_date_col_idx] if len(old_row) > issue_date_col_idx else ""
+            old_st = str(old_row[status_col_idx] if len(old_row) > status_col_idx else '').strip()
+            old_note = str(old_row[note_idx] if len(old_row) > note_idx else '').strip()
+            cur_note = str(scanned_row[note_idx] or '').strip()
+
+            # Quản lý tag [Đã bán {today_str}] trong cột ghi chú
+            tag = f"[Đã bán {today_str}]" if today_str else "[Đã bán]"
+            if st_now == "Đã bán":
+                if old_st and old_st != "Đã bán":
+                    # Chuyển bán chu kỳ này
+                    if tag.lower() not in cur_note.lower():
+                        scanned_row[note_idx] = f"{tag} {cur_note or old_note}".strip()
+                elif old_st == "Đã bán":
+                    # Đã bán từ trước, bảo tồn tag hôm nay nếu có trong old_note
+                    if today_str and f"[đã bán {today_str}]".lower() in old_note.lower():
+                        if tag.lower() not in cur_note.lower():
+                            scanned_row[note_idx] = f"{tag} {cur_note}".strip()
+            elif st_now in ["Còn hàng", "Đang lock"]:
+                # Mở bán lại: loại bỏ tag [Đã bán ...] cũ
+                if cur_note:
+                    scanned_row[note_idx] = re.sub(r'\[Đã bán(?:\s+\d{2}/\d{2}/\d{4})?\]\s*', '', cur_note, flags=re.IGNORECASE).strip()
 
             if old_agency and new_agency and old_agency != new_agency:
                 # Điều chuyển giỏ hàng sang đại lý mới hoặc Quỹ chung:
@@ -293,12 +336,21 @@ def smart_upsert_pool(
                 project_stats["new_today"] += 1
 
             # Chuyển Đã bán hôm nay
-            if key in existing_pool_by_key:
-                old_row = existing_pool_by_key[key].get("row_values", [])
-                old_st = str(old_row[status_col_idx] or '').strip() if len(old_row) > status_col_idx else ""
-                if old_st and old_st != "Đã bán" and st == "Đã bán":
-                    agency_stats[ag_name]["sold_today"] += 1
-                    project_stats["sold_today"] += 1
+            cur_note = str(row[note_idx] or '').strip().lower()
+            old_row = existing_pool_by_key.get(key, {}).get("row_values", [])
+            old_st = str(old_row[status_col_idx] or '').strip() if len(old_row) > status_col_idx else ""
+
+            is_sold_today = bool(
+                st == "Đã bán" and (
+                    (old_st in ["Còn hàng", "Đang lock"])
+                    or (today_str and f"[đã bán {today_str}]" in cur_note)
+                    or (today_str and f"đã bán {today_str}" in cur_note)
+                    or (today_str and f"bán ngày {today_str}" in cur_note)
+                )
+            )
+            if is_sold_today:
+                agency_stats[ag_name]["sold_today"] += 1
+                project_stats["sold_today"] += 1
 
             # Sắp hết hạn (mốc 29 ngày)
             expiry_val = str(row[expiry_col_idx] or '')

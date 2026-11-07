@@ -438,6 +438,90 @@ def test_mgc_headers_don_gia_tts_and_gia_tdc_preserve_total_price():
     assert row_vals[18] == 71_493_912     # Đơn giá / m²
 
 
+def test_strikethrough_triggers_sold_status():
+    """Kiểm tra ô có thuộc tính gạch ngang (strikethrough) chuyển trạng thái thành Đã bán."""
+    headers = ["STT", "Mã căn", "Giá full", "Trạng thái"]
+    grid_rows = [
+        [{"formattedValue": h} for h in headers],
+        [
+            {"formattedValue": "1", "is_strikethrough": False},
+            {"formattedValue": "LK-01", "is_strikethrough": True},
+            {"formattedValue": "5.000.000.000", "is_strikethrough": False},
+            {"formattedValue": "Còn hàng", "is_strikethrough": False},
+        ]
+    ]
+    parsed = parse_agency_grid_data(
+        grid_rows,
+        agency_name="Agency Test",
+        project_key="HLX",
+        is_low_rise=True,
+        existing_pool_keys=set(),
+        today_str="07/11/2026"
+    )
+    assert len(parsed) == 1
+    assert parsed[0]["status"] == "Đã bán"
+    assert parsed[0]["row_values"][31] == "Đã bán"
+
+
+def test_red_text_foreground_triggers_sold_status():
+    """Kiểm tra ô có màu chữ đỏ (is_fg_red) chuyển trạng thái thành Đã bán."""
+    headers = ["STT", "Mã căn", "Giá full", "Trạng thái"]
+    grid_rows = [
+        [{"formattedValue": h} for h in headers],
+        [
+            {"formattedValue": "1", "is_fg_red": False},
+            {"formattedValue": "LK-02", "is_fg_red": True},
+            {"formattedValue": "5.000.000.000", "is_fg_red": False},
+            {"formattedValue": "Còn hàng", "is_fg_red": False},
+        ]
+    ]
+    parsed = parse_agency_grid_data(
+        grid_rows,
+        agency_name="Agency Test",
+        project_key="HLX",
+        is_low_rise=True,
+        existing_pool_keys=set(),
+        today_str="07/11/2026"
+    )
+    assert len(parsed) == 1
+    assert parsed[0]["status"] == "Đã bán"
+    assert parsed[0]["row_values"][31] == "Đã bán"
+
+
+def test_extended_sold_keywords():
+    """Kiểm tra các từ khóa cọc, khóa căn, ráp căn, ttđc, hđmb đều chuyển Đã bán."""
+    headers = ["STT", "Mã căn", "Giá full", "Trạng thái", "Ghi chú"]
+    test_cases = [
+        ("LK-01", "Còn hàng", "Khách đã cọc thiện chí"),
+        ("LK-02", "Đang lock", "Khóa căn chờ ráp"),
+        ("LK-03", "Còn hàng", "Đã ký TTĐC"),
+        ("LK-04", "Còn hàng", "Vào cọc hôm nay"),
+    ]
+    grid_rows = [[{"formattedValue": h} for h in headers]]
+    for idx, (code, st, note) in enumerate(test_cases, 1):
+        grid_rows.append([
+            {"formattedValue": str(idx)},
+            {"formattedValue": code},
+            {"formattedValue": "5.000.000.000"},
+            {"formattedValue": st},
+            {"formattedValue": note},
+        ])
+
+    parsed = parse_agency_grid_data(
+        grid_rows,
+        agency_name="Agency Test",
+        project_key="HLX",
+        is_low_rise=True,
+        existing_pool_keys=set(),
+        today_str="07/11/2026"
+    )
+    assert len(parsed) == 4
+    for item in parsed:
+        assert item["status"] == "Đã bán"
+        assert item["row_values"][31] == "Đã bán"
+
+
+
 
 
 

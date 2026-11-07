@@ -616,6 +616,12 @@ def map_merged_row_to_db_record(
     if expiry_raw:
         metadata["expiryWarning"] = expiry_raw
 
+    today_vn = (now_ts or datetime.now(VN_TZ)).strftime("%d/%m/%Y")
+    if state_line == "sold":
+        if f"[đã bán {today_vn}]" in (notes_real_estate or '').lower() or f"đã bán {today_vn}" in (notes_real_estate or '').lower():
+            metadata["soldDate"] = today_vn
+            metadata["soldToday"] = True
+
     return {
         "id": str(uuid.uuid4()),
         "product_code": raw_code,

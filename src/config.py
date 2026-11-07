@@ -120,7 +120,10 @@ HIGH_RISE_HEADERS = [
 RED_HEX_CODES = {
     '#ff0000', '#ea4335', '#e06666', '#f4cccc',
     '#cc0000', '#990000', '#ea9999', '#d9534f',
-    '#ff3333', '#ff4d4d', '#ff6666', '#ff9999', '#fce8e6'
+    '#ff3333', '#ff4d4d', '#ff6666', '#ff9999', '#fce8e6',
+    '#f28b82', '#ee675c', '#c5221f', '#b31412', '#fad2cf',
+    '#f9ded8', '#ffebee', '#ffcdd2', '#ef9a9a', '#e57373',
+    '#ef5350', '#e53935', '#d32f2f', '#c62828', '#b71c1c'
 }
 
 # Regex nhận diện tab rác / tab thông số không phải bảng hàng

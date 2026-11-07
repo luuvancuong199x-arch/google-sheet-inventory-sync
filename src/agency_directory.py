@@ -502,6 +502,7 @@ def compute_project_stats_from_sheet(
             tab_status_idx = status_col_idx
             tab_issue_idx = issue_date_col_idx
             tab_expiry_idx = expiry_col_idx
+            tab_note_idx = 30 if is_low_rise else 26
 
             header_row = [str(h).strip().lower() for h in rows[0]]
             for idx, h in enumerate(header_row):
@@ -513,6 +514,8 @@ def compute_project_stats_from_sheet(
                     tab_issue_idx = idx
                 elif 'hạn cấp' in h or 'han cap' in h:
                     tab_expiry_idx = idx
+                elif 'ghi chú' in h or 'ghi chu' in h:
+                    tab_note_idx = idx
 
             for row in rows[1:]:
                 ag_raw = row[tab_agency_idx] if len(row) > tab_agency_idx else ''
@@ -524,10 +527,16 @@ def compute_project_stats_from_sheet(
                 st_lower = st.lower()
                 issue_d = (row[tab_issue_idx] if len(row) > tab_issue_idx else '').strip()
                 exp_v = (row[tab_expiry_idx] if len(row) > tab_expiry_idx else '').strip()
+                note_v = (row[tab_note_idx] if len(row) > tab_note_idx else '').strip().lower()
 
                 is_avail = bool('còn' in st_lower or 'con' in st_lower)
                 is_lock = bool('lock' in st_lower)
                 is_sold = bool('bán' in st_lower or 'ban' in st_lower or 'sold' in st_lower)
+                is_sold_today = bool(is_sold and today_str and (
+                    f"[đã bán {today_str}]" in note_v or
+                    f"đã bán {today_str}" in note_v or
+                    f"bán ngày {today_str}" in note_v
+                ))
 
                 for k in [(clean_ag, (tab or '').strip().upper()), clean_ag]:
                     if k not in agency_stats:
@@ -543,6 +552,8 @@ def compute_project_stats_from_sheet(
                     elif is_sold:
                         agency_stats[k]["sold"] += 1
 
+                    if is_sold_today:
+                        agency_stats[k]["sold_today"] += 1
                     if today_str and issue_d == today_str:
                         agency_stats[k]["new_today"] += 1
                     if (is_avail or is_lock) and 'sắp hết hạn' in exp_v.lower():
@@ -555,6 +566,8 @@ def compute_project_stats_from_sheet(
                     project_stats["lock"] += 1
                 elif is_sold:
                     project_stats["sold"] += 1
+                if is_sold_today:
+                    project_stats["sold_today"] += 1
                 if today_str and issue_d == today_str:
                     project_stats["new_today"] += 1
                 if (is_avail or is_lock) and 'sắp hết hạn' in exp_v.lower():

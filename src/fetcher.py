@@ -16,7 +16,7 @@ import unicodedata
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, List, Any, Optional, Tuple
 
-from src.config import NON_INVENTORY_TAB_REGEX
+from src.config import NON_INVENTORY_TAB_REGEX, RED_HEX_CODES
 from src.normalizer import (
     sanitize_unit_code,
     normalize_high_rise_unit_floor_axis,
@@ -74,11 +74,18 @@ def classify_rgb_color(r: float, g: float, b: float) -> str:
     # Trắng, xám hoặc gần đồng màu -> neutral
     if abs(r - g) < 0.05 and abs(g - b) < 0.05:
         return 'neutral'
+    # Check direct hex code against known red hex codes
+    hex_code = f"#{int(round(r * 255)):02x}{int(round(g * 255)):02x}{int(round(b * 255)):02x}"
+    if hex_code.lower() in RED_HEX_CODES:
+        return 'red'
     # Màu vàng / cam / hổ phách (bao gồm cam tiêu đề #FF9900): R và G đều cao, B thấp hơn rõ rệt
     if r > 0.65 and g >= 0.55 and (min(r, g) - b) >= 0.10:
         return 'yellow'
     # Màu đỏ: R vượt trội so với G và B
-    if r > 0.50 and (r - max(g, b)) >= 0.10 and (r - g) >= 0.10:
+    if r > 0.50 and (r - max(g, b)) >= 0.08 and (r - g) >= 0.08:
+        return 'red'
+    # Các tone đỏ pastel / hồng đỏ
+    if r > 0.70 and (r - g) >= 0.06 and (r - b) >= 0.06 and g < 0.96 and b < 0.96:
         return 'red'
     return 'neutral'
 
@@ -92,6 +99,8 @@ def classify_hex_color(hex_str: str) -> str:
         s = s[2:]
     if len(s) != 6:
         return 'neutral'
+    if f"#{s.lower()}" in RED_HEX_CODES:
+        return 'red'
     try:
         r = int(s[0:2], 16) / 255.0
         g = int(s[2:4], 16) / 255.0
@@ -301,12 +310,16 @@ def parse_agency_grid_data(
         row_str = ' '.join([c.get('formattedValue', '') for c in row]).strip()
 
         # Kiểm tra banner ĐÃ BÁN / ĐANG BÁN
-        if re.match(r'^\s*(đã bán|da ban|căn đã bán)\s*$', row_str, re.IGNORECASE):
-            in_sold_section = True
-            continue
-        if re.match(r'^\s*(đang bán|dang ban|còn hàng|bảng hàng)\s*$', row_str, re.IGNORECASE):
-            in_sold_section = False
-            continue
+        if (re.search(r'(căn\s*đã\s*bán|bảng\s*hàng\s*đã\s*bán|quỹ\s*đã\s*bán|quy\s*da\s*ban|danh\s*sách\s*đã\s*bán|đã\s*giao\s*dịch|da\s*giao\s*dich|căn\s*đã\s*cọc)', row_str, re.IGNORECASE)
+                or re.match(r'^\s*(đã bán|da ban|căn đã bán)\s*$', row_str, re.IGNORECASE)):
+            if not re.search(r'\d{2,}', row_str):
+                in_sold_section = True
+                continue
+        if (re.search(r'(căn\s*đang\s*bán|bảng\s*hàng\s*còn|quỹ\s*còn\s*hàng|danh\s*sách\s*còn\s*hàng)', row_str, re.IGNORECASE)
+                or re.match(r'^\s*(đang bán|dang ban|còn hàng|bảng hàng)\s*$', row_str, re.IGNORECASE)):
+            if not re.search(r'\d{2,}', row_str):
+                in_sold_section = False
+                continue
 
         raw_unit = get_val(row, cm['unit_code']).strip()
         # Fallback: Nếu cột mã căn bị rỗng (ví dụ đại lý gộp ô tiêu đề "Mã căn" trên 2 cột nhưng dữ liệu thực tế nằm ở cột sau):
@@ -361,6 +374,10 @@ def parse_agency_grid_data(
         is_red = ('red' in row_colors)
         is_yellow = ('yellow' in row_colors)
 
+        # 2b. Kiểm tra gạch ngang (strikethrough) và chữ đỏ (red foreground)
+        has_strikethrough = any(bool(c.get('is_strikethrough')) for c in row if isinstance(c, dict))
+        has_red_text = any(bool(c.get('is_fg_red')) for c in row if isinstance(c, dict))
+
         # 3. Giá các loại để nhận diện có thông tin mở bán thực tế hay không
         gia_chua_vat = normalize_price_to_vnd(get_val(row, cm['gia_chua_vat']))
         gia_full = normalize_price_to_vnd(get_val(row, cm['gia_full']))
@@ -398,16 +415,27 @@ def parse_agency_grid_data(
         raw_status = get_val(row, cm['status']).strip().lower()
         raw_note = get_val(row, cm['note']).strip().lower()
         combined_status = f"{raw_status} {raw_note}"
+        sold_keywords = [
+            'đã bán', 'da ban', 'sold', 'đã cọc', 'da coc', 'đặt cọc', 'dat coc',
+            'hết hàng', 'het hang', 'thu hồi', 'thu hoi', 'khóa căn', 'khoa can',
+            'đóng căn', 'dong can', 'ráp căn', 'rap can', 'đã ráp', 'da rap',
+            'vào cọc', 'nhận cọc', 'cọc thiện chí', 'ký ttđc', 'ky ttdc', 'ttđc', 'ttdc',
+            'ký hđmb', 'ky hdmb', 'hđmb', 'hdmb', 'ngưng bán', 'ngung ban',
+            'chuyển bán', 'chuyen ban', 'đã gd', 'da gd', 'gd thành công', 'giao dịch thành công'
+        ]
+        is_sold_keyword = any(kw in combined_status for kw in sold_keywords) or bool(re.search(r'\b(cọc|coc|hết|het)\b', combined_status))
         is_sold_signal = bool(
             in_sold_section or
-            any(kw in combined_status for kw in ['đã bán', 'da ban', 'sold', 'đã cọc', 'da coc', 'hết hàng', 'thu', 'thu hồi'])
+            is_sold_keyword or
+            has_strikethrough or
+            has_red_text
         )
         is_lock_signal = bool(
             re.search(r'\block|đang lock|dang lock|giữ chỗ|giu cho', combined_status, re.IGNORECASE)
         )
 
         # Quy tắc xác định trạng thái theo yêu cầu:
-        # - Bị bôi đỏ HOẶC dòng bị ẩn HOẶC nguồn ghi rõ đã bán -> 'Đã bán'
+        # - Bị bôi đỏ HOẶC dòng bị ẩn HOẶC nguồn ghi rõ đã bán HOẶC gạch ngang HOẶC chữ đỏ -> 'Đã bán'
         # - Không có cả 'Giá chưa gồm VAT' lẫn 'Giá gồm VAT và KPBT' -> 'Đã bán'
         # - Chỉ nhận 'Đang lock' nếu nguồn ghi rõ trạng thái lock trong văn bản (KHÔNG xác định dựa trên màu ô)
         # - Không xác định được lock cụ thể -> Mặc định là 'Còn hàng'
@@ -823,10 +851,20 @@ def fetch_agency_from_drive_xlsx(
                     val = str(c.value or '') if c.value is not None else ''
                     link = c.hyperlink.target if getattr(c, 'hyperlink', None) else ''
                     color_type = get_openpyxl_cell_color(c)
+                    font = getattr(c, 'font', None)
+                    is_strike = bool(getattr(font, 'strike', False))
+                    font_color = getattr(font, 'color', None)
+                    is_fg_red = False
+                    if font_color:
+                        f_rgb = getattr(font_color, 'rgb', None)
+                        if f_rgb and isinstance(f_rgb, str):
+                            is_fg_red = (classify_hex_color(f_rgb) == 'red')
                     row_cells.append({
                         'formattedValue': val,
                         'hyperlink': link,
-                        'color_type': color_type
+                        'color_type': color_type,
+                        'is_strikethrough': is_strike,
+                        'is_fg_red': is_fg_red
                     })
                 grid_rows.append(row_cells)
 
@@ -980,7 +1018,7 @@ def fetch_agency_from_google_sheet(
                 service.spreadsheets().get(
                     spreadsheetId=file_id,
                     ranges=[f"'{chosen_sheet_title}'!A1:AZ2000"],
-                    fields="sheets(data(rowData(values(formattedValue,hyperlink,effectiveFormat.backgroundColor,userEnteredFormat.backgroundColor)),rowMetadata(hiddenByUser)),properties(title,sheetId))"
+                    fields="sheets(data(rowData(values(formattedValue,hyperlink,effectiveFormat.backgroundColor,userEnteredFormat.backgroundColor,effectiveFormat.textFormat,userEnteredFormat.textFormat)),rowMetadata(hiddenByUser,hiddenByFilter)),properties(title,sheetId))"
                 )
             )
 
@@ -993,9 +1031,8 @@ def fetch_agency_from_google_sheet(
             row_hidden_flags = []
             for r_idx, r_data in enumerate(grid_data):
                 r_meta = row_metadata[r_idx] if r_idx < len(row_metadata) else {}
-                # Chỉ coi là dòng bị ẩn khi chủ sở hữu cố tình ẩn hàng (hiddenByUser),
-                # không tính ẩn do bộ lọc tạm thời của người xem (hiddenByFilter)
-                is_h = bool(r_meta.get('hiddenByUser'))
+                # Dòng bị ẩn (ẩn thủ công bởi người dùng hoặc bị bộ lọc ẩn)
+                is_h = bool(r_meta.get('hiddenByUser') or r_meta.get('hiddenByFilter'))
                 row_hidden_flags.append(is_h)
 
                 cells = r_data.get('values', [])
@@ -1011,10 +1048,21 @@ def fetch_agency_from_google_sheet(
                         g_c = float(bg.get('green', 0.0))
                         b_c = float(bg.get('blue', 0.0))
                         color_type = classify_rgb_color(r_c, g_c, b_c)
+
+                    tf = c.get('effectiveFormat', {}).get('textFormat') or c.get('userEnteredFormat', {}).get('textFormat') or {}
+                    is_strike = bool(tf.get('strikethrough'))
+                    fg = tf.get('foregroundColor') or {}
+                    fg_r = float(fg.get('red', 0.0))
+                    fg_g = float(fg.get('green', 0.0))
+                    fg_b = float(fg.get('blue', 0.0))
+                    is_fg_red = (classify_rgb_color(fg_r, fg_g, fg_b) == 'red')
+
                     parsed_cells.append({
                         'formattedValue': val,
                         'hyperlink': link,
-                        'color_type': color_type
+                        'color_type': color_type,
+                        'is_strikethrough': is_strike,
+                        'is_fg_red': is_fg_red
                     })
                 parsed_rows.append(parsed_cells)
         except Exception as e_grid:
@@ -1034,13 +1082,15 @@ def fetch_agency_from_google_sheet(
                 max_fetch_row = max(actual_num_rows + 5, 20)
 
                 color_lookup = {}
+                strike_lookup = {}
+                fg_red_lookup = {}
                 row_hidden_flags = [False] * actual_num_rows
                 try:
                     format_resp = _execute_with_retry(
                         service.spreadsheets().get(
                             spreadsheetId=file_id,
                             ranges=[f"'{chosen_sheet_title}'!A1:AZ{max_fetch_row}"],
-                            fields="sheets(data(rowData(values(userEnteredFormat.backgroundColor)),rowMetadata(hiddenByUser)),properties(sheetId,title))"
+                            fields="sheets(data(rowData(values(userEnteredFormat.backgroundColor,userEnteredFormat.textFormat)),rowMetadata(hiddenByUser,hiddenByFilter)),properties(sheetId,title))"
                         )
                     )
                     f_sheet = format_resp.get('sheets', [{}])[0]
@@ -1050,7 +1100,7 @@ def fetch_agency_from_google_sheet(
 
                     for r_idx, r_m in enumerate(f_row_meta):
                         if r_idx < actual_num_rows:
-                            row_hidden_flags[r_idx] = bool(r_m.get('hiddenByUser'))
+                            row_hidden_flags[r_idx] = bool(r_m.get('hiddenByUser') or r_m.get('hiddenByFilter'))
 
                     for r_idx, r_d in enumerate(f_row_data):
                         for c_idx, c_d in enumerate(r_d.get('values', [])):
@@ -1061,6 +1111,13 @@ def fetch_agency_from_google_sheet(
                                     float(bg.get('green', 0.0)),
                                     float(bg.get('blue', 0.0))
                                 )
+                            tf_u = c_d.get('userEnteredFormat', {}).get('textFormat') or {}
+                            if tf_u.get('strikethrough'):
+                                strike_lookup[(r_idx, c_idx)] = True
+                            fg_u = tf_u.get('foregroundColor') or {}
+                            if fg_u:
+                                if classify_rgb_color(float(fg_u.get('red', 0.0)), float(fg_u.get('green', 0.0)), float(fg_u.get('blue', 0.0))) == 'red':
+                                    fg_red_lookup[(r_idx, c_idx)] = True
                 except Exception as e_fmt:
                     logger.debug(f"Không thể lấy format rút gọn cho {agency_name}: {e_fmt}")
 
@@ -1070,10 +1127,14 @@ def fetch_agency_from_google_sheet(
                     for c_idx, val in enumerate(r_vals):
                         val_clean = str(val or '').strip()
                         c_type = color_lookup.get((r_idx, c_idx), 'neutral')
+                        is_strike = strike_lookup.get((r_idx, c_idx), False)
+                        is_fg_red = fg_red_lookup.get((r_idx, c_idx), False)
                         cells.append({
                             'formattedValue': val_clean,
                             'hyperlink': val_clean if val_clean.startswith('http') else '',
-                            'color_type': c_type
+                            'color_type': c_type,
+                            'is_strikethrough': is_strike,
+                            'is_fg_red': is_fg_red
                         })
                     parsed_rows.append(cells)
             else:

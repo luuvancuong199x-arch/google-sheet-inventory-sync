@@ -651,3 +651,111 @@ def test_vhub_takes_over_existing_unit_from_old_agency():
     assert row[2] == "LK-VHUB-03"
     assert row[32] == "Quỹ độc quyền"
     assert row[33] == "VHUB"
+
+
+def test_sold_today_persistence_across_cycles():
+    """
+    Kiểm tra tính bền vững của chỉ số Chuyển Đã bán hôm nay qua nhiều chu kỳ:
+    - Chu kỳ N: Căn chuyển từ Còn hàng -> Đã bán (được tag [Đã bán 07/11/2026]).
+    - Chu kỳ N+1 (vài phút sau): Đọc lại kho cũ đã là Đã bán, đợt quét mới vẫn là Đã bán.
+      -> PHẢI TIẾP TỤC ĐƯỢC TÍNH vào sold_today suốt cả ngày!
+    """
+    today = "07/11/2026"
+    # Chu kỳ N: kho cũ là Còn hàng, vừa quét được Đã bán
+    existing_pool_1 = {
+        "LK-SOLD-01": {
+            "unit_key": "LK-SOLD-01",
+            "row_values": [1, "Khu A", "LK-SOLD-01", "Thô", "LK", 100, 200, 5000000000] + [""] * 22 + ["Ghi chú cũ", "Còn hàng", "Quỹ chéo", "Agency A", "01/11/2026", "Còn 24 ngày"] + [""] * 3
+        }
+    }
+    scanned_1 = [
+        {
+            "unit_key": "LK-SOLD-01",
+            "agency_name": "Agency A",
+            "is_exclusive": False,
+            "status": "Đã bán",
+            "row_values": [0, "Khu A", "LK-SOLD-01", "Thô", "LK", 100, 200, 5000000000] + [""] * 22 + ["", "Đã bán", "Quỹ chéo", "Agency A", "01/11/2026", "Còn 24 ngày"] + [""] * 3
+        }
+    ]
+    rows_1, stats_1 = smart_upsert_pool(existing_pool_1, scanned_1, is_low_rise=True, today_str=today, return_stats=True)
+    assert stats_1["project_stats"]["sold_today"] == 1
+    assert stats_1["agency_stats"]["AGENCY A"]["sold_today"] == 1
+    assert "[Đã bán 07/11/2026]" in rows_1[0][30]
+
+    # Chu kỳ N+1: kho cũ lúc này chính là kết quả của chu kỳ N
+    existing_pool_2 = {
+        "LK-SOLD-01": {
+            "unit_key": "LK-SOLD-01",
+            "row_values": rows_1[0]
+        }
+    }
+    scanned_2 = scanned_1  # đại lý vẫn quét ra Đã bán
+    rows_2, stats_2 = smart_upsert_pool(existing_pool_2, scanned_2, is_low_rise=True, today_str=today, return_stats=True)
+    # Vẫn phải giữ sold_today = 1 (không bị tụt về 0 sau 1 chu kỳ)
+    assert stats_2["project_stats"]["sold_today"] == 1
+    assert stats_2["agency_stats"]["AGENCY A"]["sold_today"] == 1
+
+
+def test_removed_active_unit_marked_sold_and_counted_today():
+    """
+    Kiểm tra trường hợp đại lý xóa căn khỏi bảng hàng nguồn:
+    - Căn LK-ACTIVE trước đó Còn hàng.
+    - Agency A quét thành công nhưng KHÔNG CÒN LK-ACTIVE trong danh sách quét.
+    -> Căn này phải được chuyển sang Đã bán, gắn tag [Đã bán hôm nay] và tính vào sold_today!
+    """
+    today = "07/11/2026"
+    existing_pool = {
+        "LK-ACTIVE": {
+            "unit_key": "LK-ACTIVE",
+            "row_values": [1, "Khu A", "LK-ACTIVE", "Thô", "LK", 100, 200, 5000000000] + [""] * 22 + ["", "Còn hàng", "Quỹ chéo", "Agency A", "01/11/2026", "Còn 24 ngày"] + [""] * 3
+        }
+    }
+    # Agency A quét thành công nhưng bảng hàng chỉ còn LK-OTHER
+    scanned = [
+        {
+            "unit_key": "LK-OTHER",
+            "agency_name": "Agency A",
+            "is_exclusive": False,
+            "status": "Còn hàng",
+            "row_values": [0, "Khu A", "LK-OTHER", "Thô", "LK", 100, 200, 5000000000] + [""] * 22 + ["", "Còn hàng", "Quỹ chéo", "Agency A", "07/11/2026", "Còn 30 ngày"] + [""] * 3
+        }
+    ]
+
+    rows, stats = smart_upsert_pool(
+        existing_pool,
+        scanned,
+        is_low_rise=True,
+        today_str=today,
+        successful_agencies={"Agency A"},
+        return_stats=True
+    )
+    by_key = {r[2]: r for r in rows}
+    assert "LK-ACTIVE" in by_key
+    assert by_key["LK-ACTIVE"][31] == "Đã bán"
+    assert "[Đã bán 07/11/2026]" in by_key["LK-ACTIVE"][30]
+    assert stats["project_stats"]["sold_today"] == 1
+    assert stats["agency_stats"]["AGENCY A"]["sold_today"] == 1
+
+
+def test_sold_today_resets_on_next_day():
+    """
+    Kiểm tra sang ngày mới, các căn đã bán của ngày hôm trước không bị tính vào sold_today của ngày mới.
+    """
+    existing_pool = {
+        "LK-YESTERDAY": {
+            "unit_key": "LK-YESTERDAY",
+            "row_values": [1, "Khu A", "LK-YESTERDAY", "Thô", "LK", 100, 200, 5000000000] + [""] * 22 + ["[Đã bán 06/11/2026]", "Đã bán", "Quỹ chéo", "Agency A", "01/11/2026", "Còn 24 ngày"] + [""] * 3
+        }
+    }
+    scanned = [
+        {
+            "unit_key": "LK-YESTERDAY",
+            "agency_name": "Agency A",
+            "is_exclusive": False,
+            "status": "Đã bán",
+            "row_values": [0, "Khu A", "LK-YESTERDAY", "Thô", "LK", 100, 200, 5000000000] + [""] * 22 + ["", "Đã bán", "Quỹ chéo", "Agency A", "01/11/2026", "Còn 24 ngày"] + [""] * 3
+        }
+    ]
+    today = "07/11/2026"
+    rows, stats = smart_upsert_pool(existing_pool, scanned, is_low_rise=True, today_str=today, return_stats=True)
+    assert stats["project_stats"]["sold_today"] == 0

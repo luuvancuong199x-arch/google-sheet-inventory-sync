@@ -74,18 +74,15 @@ def classify_rgb_color(r: float, g: float, b: float) -> str:
     # Trắng, xám hoặc gần đồng màu -> neutral
     if abs(r - g) < 0.05 and abs(g - b) < 0.05:
         return 'neutral'
-    # Check direct hex code against known red hex codes
-    hex_code = f"#{int(round(r * 255)):02x}{int(round(g * 255)):02x}{int(round(b * 255)):02x}"
-    if hex_code.lower() in RED_HEX_CODES:
+    # Check direct hex code against known true red hex codes
+    hex_code = f"#{int(round(r * 255)):02x}{int(round(g * 255)):02x}{int(round(b * 255)):02x}".lower()
+    if hex_code in RED_HEX_CODES:
         return 'red'
-    # Màu vàng / cam / hổ phách (bao gồm cam tiêu đề #FF9900): R và G đều cao, B thấp hơn rõ rệt
-    if r > 0.65 and g >= 0.55 and (min(r, g) - b) >= 0.10:
+    # Màu vàng / cam / hổ phách / đào / be: R và G đều cao
+    if r > 0.65 and g >= 0.55 and (min(r, g) - b) >= 0.05:
         return 'yellow'
-    # Màu đỏ: R vượt trội so với G và B
-    if r > 0.50 and (r - max(g, b)) >= 0.08 and (r - g) >= 0.08:
-        return 'red'
-    # Các tone đỏ pastel / hồng đỏ
-    if r > 0.70 and (r - g) >= 0.06 and (r - b) >= 0.06 and g < 0.96 and b < 0.96:
+    # Màu đỏ thực sự: R phải cao vượt trội so với G và B (r >= 0.60, r - g >= 0.22, r - b >= 0.20)
+    if r >= 0.60 and (r - g) >= 0.22 and (r - b) >= 0.20:
         return 'red'
     return 'neutral'
 
@@ -289,6 +286,7 @@ def parse_agency_grid_data(
     cm = col_map
     scanned_units = []
     in_sold_section = False
+    in_general_section = False
 
     def get_cell(row, c_idx):
         if c_idx != -1 and c_idx < len(row):
@@ -309,7 +307,7 @@ def parse_agency_grid_data(
         row = grid_rows[r]
         row_str = ' '.join([c.get('formattedValue', '') for c in row]).strip()
 
-        # Kiểm tra banner ĐÃ BÁN / ĐANG BÁN
+        # Kiểm tra banner ĐÃ BÁN / ĐANG BÁN / QUỸ CHUNG
         if (re.search(r'(căn\s*đã\s*bán|bảng\s*hàng\s*đã\s*bán|quỹ\s*đã\s*bán|quy\s*da\s*ban|danh\s*sách\s*đã\s*bán|đã\s*giao\s*dịch|da\s*giao\s*dich|căn\s*đã\s*cọc)', row_str, re.IGNORECASE)
                 or re.match(r'^\s*(đã bán|da ban|căn đã bán)\s*$', row_str, re.IGNORECASE)):
             if not re.search(r'\d{2,}', row_str):
@@ -319,6 +317,16 @@ def parse_agency_grid_data(
                 or re.match(r'^\s*(đang bán|dang ban|còn hàng|bảng hàng)\s*$', row_str, re.IGNORECASE)):
             if not re.search(r'\d{2,}', row_str):
                 in_sold_section = False
+                continue
+        if (re.search(r'^(quỹ\s*chung|quy\s*chung|quỹ\s*cđt|quy\s*cdt|giỏ\s*chung|gio\s*chung)', row_str, re.IGNORECASE)
+                and not re.search(r'\b[a-z]{1,4}\d{1,4}-\d{1,4}\b', row_str, re.IGNORECASE)):
+            if not re.search(r'\d{3,}', row_str):
+                in_general_section = True
+                continue
+        if (re.search(r'^(quỹ\s*độc\s*quyền|quỹ\s*riêng|giỏ\s*độc\s*quyền|quỹ\s*chéo)', row_str, re.IGNORECASE)
+                and not re.search(r'\b[a-z]{1,4}\d{1,4}-\d{1,4}\b', row_str, re.IGNORECASE)):
+            if not re.search(r'\d{3,}', row_str):
+                in_general_section = False
                 continue
 
         raw_unit = get_val(row, cm['unit_code']).strip()
@@ -369,13 +377,26 @@ def parse_agency_grid_data(
         # 1. Dòng bị ẩn (hiddenByUser hoặc hiddenByFilter hoặc ws.row_dimensions.hidden) -> Luôn là Đã bán
         is_row_hidden = bool(row_hidden_flags and r < len(row_hidden_flags) and row_hidden_flags[r])
 
-        # 2. Màu nền của dòng: chỉ xét màu nền đỏ (color_type == 'red'). Tuyệt đối KHÔNG tính màu chữ (is_fg_red)
-        row_colors = [c.get('color_type', 'neutral') for c in row if isinstance(c, dict)]
-        is_red = ('red' in row_colors)
-
-        # 3. Gạch ngang (strikethrough) chỉ xét trên ô mã căn hoặc ô trạng thái (tránh gạch ngang ở ghi chú/giá cũ)
+        # 2. Màu nền đỏ xác định căn đã bán:
+        # Căn được đánh dấu Đã bán bằng màu đỏ khi:
+        # a) Ô mã căn (unit_code) có màu đỏ
+        # b) Hoặc ô trạng thái (status) có màu đỏ
+        # c) Hoặc quá bán số ô trên dòng được tô đỏ (>= 3 ô đỏ và >= 30% số ô trên dòng)
+        # Tuyệt đối KHÔNG tính màu chữ (is_fg_red) và không tính màu cam đào/vàng/be/kem
         unit_c_idx = cm.get('unit_code', -1)
         status_c_idx = cm.get('status', -1)
+        stt_c_idx = cm.get('stt', -1)
+        unit_color = get_cell(row, unit_c_idx).get('color_type', 'neutral') if unit_c_idx != -1 else 'neutral'
+        status_color = get_cell(row, status_c_idx).get('color_type', 'neutral') if status_c_idx != -1 else 'neutral'
+        stt_color = get_cell(row, stt_c_idx).get('color_type', 'neutral') if stt_c_idx != -1 else 'neutral'
+
+        row_colors = [c.get('color_type', 'neutral') for c in row if isinstance(c, dict)]
+        red_cell_count = sum(1 for c in row_colors if c == 'red')
+        is_majority_red = (red_cell_count >= 3 and red_cell_count >= len(row_colors) * 0.3)
+
+        is_red = (unit_color == 'red' or status_color == 'red' or stt_color == 'red' or is_majority_red)
+
+        # 3. Gạch ngang (strikethrough) chỉ xét trên ô mã căn hoặc ô trạng thái (tránh gạch ngang ở ghi chú/giá cũ)
         has_strikethrough = False
         if isinstance(row, list):
             for c_idx in (unit_c_idx, status_c_idx):
@@ -422,18 +443,21 @@ def parse_agency_grid_data(
         raw_status = get_val(row, cm['status']).strip().lower()
         raw_note = get_val(row, cm['note']).strip().lower()
         combined_status = f"{raw_status} {raw_note}"
-        sold_keywords = [
+        sold_status_keywords = [
             'đã bán', 'da ban', 'sold', 'đã cọc', 'da coc', 'đặt cọc', 'dat coc',
             'hết hàng', 'het hang', 'thu hồi', 'thu hoi', 'khóa căn', 'khoa can',
             'đóng căn', 'dong can', 'ráp căn', 'rap can', 'đã ráp', 'da rap',
-            'vào cọc', 'nhận cọc', 'cọc thiện chí', 'ký ttđc', 'ky ttdc', 'ttđc', 'ttdc',
-            'ký hđmb', 'ky hdmb', 'hđmb', 'hdmb', 'ngưng bán', 'ngung ban',
+            'vào cọc', 'nhận cọc', 'cọc thiện chí', 'ngưng bán', 'ngung ban',
             'chuyển bán', 'chuyen ban', 'đã gd', 'da gd', 'gd thành công', 'giao dịch thành công'
         ]
-        is_sold_keyword = any(kw in combined_status for kw in sold_keywords) or bool(re.search(r'\b(cọc|coc|hết|het)\b', combined_status))
+        is_sold_in_status = any(kw in raw_status for kw in sold_status_keywords) or bool(re.search(r'\b(đã bán|da ban|đã cọc|da coc|hết|het)\b', raw_status))
+        # Trong cột ghi chú: nhận diện khi có cụm từ cọc / ráp / bán / khóa căn rõ ràng (TUYỆT ĐỐI KHÔNG bắt 'hđmb' vì là loại hình hợp đồng)
+        explicit_note_sold = bool(re.search(r'(đã bán|da ban|\bsold\b|cọc|coc|hết hàng|het hang|thu hồi|thu hoi|khóa căn|khoa can|đóng căn|dong can|ráp|rap|ttđc|ttdc)', raw_note))
+        
         is_sold_signal = bool(
             in_sold_section or
-            is_sold_keyword or
+            is_sold_in_status or
+            explicit_note_sold or
             has_strikethrough
         )
         is_lock_signal = bool(
@@ -453,13 +477,13 @@ def parse_agency_grid_data(
             resolved_status = 'Còn hàng'
 
         # Nhóm quỹ theo Quy tắc chuẩn hóa:
-        # 1. Quỹ chung: nguồn Quỹ chung hoặc trạng thái Check Admin -> fund_group = 'Quỹ chung'
+        # 1. Quỹ chung: nguồn Quỹ chung, section Quỹ chung, hoặc trạng thái Check Admin -> fund_group = 'Quỹ chung'
         # 2. Vhub: nguồn đại lý tên là Vhub -> fund_group = 'Quỹ độc quyền' (toàn quyền ưu tiên)
         # 3. Các đại lý khác: nếu xác định là độc quyền của đại lý đó -> fund_group = 'Quỹ chéo'
         is_vhub = bool(re.search(r'\bvhub\b', agency_name, re.IGNORECASE))
         is_check_admin = bool(re.search(r'check\s*admin', combined_status, re.IGNORECASE))
 
-        if is_general_pool or bool(re.search(r'quỹ chung|quy chung|quỹ cđt|quy cdt', agency_name, re.IGNORECASE)) or is_check_admin:
+        if in_general_section or is_general_pool or bool(re.search(r'quỹ chung|quy chung|quỹ cđt|quy cdt', agency_name, re.IGNORECASE)) or is_check_admin:
             is_exclusive = False
             fund_group = 'Quỹ chung'
         elif is_vhub:
@@ -984,7 +1008,7 @@ def fetch_agency_from_google_sheet(
                 for sh in sheets:
                     if not sh['properties'].get('hidden', False):
                         t = sh['properties']['title'].strip()
-                        if not skip_rx.search(t) and re.search(r'bảng\s*hàng|bang\s*hang|\bbh\b|quỹ|quy|căn|can|giỏ\s*hàng|gio\s*hang|bán|ban|qđq|độc\s*quyền', t, re.IGNORECASE):
+                        if not skip_rx.search(t) and re.search(r'bảng\s*hàng|bang\s*hang|\bbh\b|quỹ|quy|căn|can|giỏ|gio|bán|ban|qđq|độc\s*quyền', t, re.IGNORECASE):
                             chosen_sheet_title = sh['properties']['title']
                             chosen_sheet_gid = sh['properties']['sheetId']
                             break

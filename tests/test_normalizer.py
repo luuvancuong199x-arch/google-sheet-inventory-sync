@@ -39,6 +39,44 @@ def test_normalize_high_rise_unit_floor_axis_commercial_rules():
     assert res3["axis"] == "12A"   # 13 -> 12A
     assert res3["unit_code"] == "BS11-15A-12A"
 
+def test_normalize_high_rise_hsg_grounded_rules():
+    # Dự án HSG: Chuẩn hóa theo bảng hàng độc quyền (HH-A-[Tầng]-[Trục] và HH-B-[Tầng]-[Trục])
+    # Tên tòa chuẩn hóa L1 và L2 để khớp 100% với 3D Building block
+    hsg1 = normalize_high_rise_unit_floor_axis("HHA-18-05A", raw_tower="L1", project_key="HSG")
+    assert hsg1["unit_code"] == "HH-A-18-05A"
+    assert hsg1["tower"] == "L1"
+    assert hsg1["floor"] == "18"
+    assert hsg1["axis"] == "05A"
+
+    hsg2 = normalize_high_rise_unit_floor_axis("HHA2819", raw_tower="", project_key="HSG")
+    assert hsg2["unit_code"] == "HH-A-28-19"
+    assert hsg2["tower"] == "L1"
+    assert hsg2["floor"] == "28"
+    assert hsg2["axis"] == "19"
+
+    hsg3 = normalize_high_rise_unit_floor_axis("HHB1021", raw_tower="", project_key="HSG")
+    assert hsg3["unit_code"] == "HH-B-10-21"
+    assert hsg3["tower"] == "L2"
+    assert hsg3["floor"] == "10"
+    assert hsg3["axis"] == "21"
+
+    hsg4 = normalize_high_rise_unit_floor_axis("A-37-05A", raw_tower="A", project_key="HSG")
+    assert hsg4["unit_code"] == "HH-A-37-05A"
+    assert hsg4["tower"] == "L1"
+
+    hsg5 = normalize_high_rise_unit_floor_axis("B-22-12A", raw_tower="B", project_key="HSG")
+    assert hsg5["unit_code"] == "HH-B-22-12A"
+    assert hsg5["tower"] == "L2"
+
+    hsg6 = normalize_high_rise_unit_floor_axis("HH-A-31-05", raw_tower="HH-A", project_key="HSG")
+    assert hsg6["axis"] == "05A"  # Trục 05 trên L1 tự động map sang 05A khớp 3D model
+    assert hsg6["tower"] == "L1"
+
+    # Lọc bỏ các căn dự án khác bị lẫn trong sheet đại lý
+    assert normalize_high_rise_unit_floor_axis("C5L1-18-18A", project_key="HSG") is None
+    assert normalize_high_rise_unit_floor_axis("C1Z2-11-06", project_key="HSG") is None
+    assert normalize_high_rise_unit_floor_axis("B1-06-15", project_key="HSG") is None
+
 def test_wc_decimal_preservation():
     # Crucial bug fix: 2.5 WC must NOT become 25 WC!
     assert normalize_numeric_or_null("2.5", is_integer=False) == 2.5

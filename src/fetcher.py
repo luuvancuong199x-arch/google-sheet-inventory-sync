@@ -366,11 +366,18 @@ def parse_agency_grid_data(
         resolved_zone = infer_grounded_zone(unit_code, project_key, raw_zone, sub_tab)
 
         if not is_low_rise:
-            hr_norm = normalize_high_rise_unit_floor_axis(unit_code, tower, floor, axis)
+            hr_norm = normalize_high_rise_unit_floor_axis(
+                unit_code, tower, floor, axis, project_key=project_key, sub_tab=sub_tab
+            )
+            if hr_norm is None:
+                # Dòng thuộc dự án khác bị lẫn trong bảng đại lý liên kết
+                continue
             unit_code = hr_norm['unit_code']
             tower = hr_norm['tower']
             floor = hr_norm['floor']
             axis = hr_norm['axis']
+            if hr_norm.get('subdivision') and not resolved_zone:
+                resolved_zone = hr_norm['subdivision']
 
         unit_key = unit_code
 

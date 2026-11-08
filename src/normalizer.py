@@ -128,15 +128,138 @@ def normalize_high_rise_unit_floor_axis(
     raw_unit_code: Any,
     raw_tower: Any = '',
     raw_floor: Any = '',
-    raw_axis: Any = ''
-) -> Dict[str, str]:
+    raw_axis: Any = '',
+    project_key: str = '',
+    sub_tab: str = ''
+) -> Optional[Dict[str, str]]:
     """
     Chuẩn hóa bộ 4 thông số cao tầng: Tên tòa, Tầng, Mã trục, Mã căn.
+    Tuân thủ tuyệt đối mẫu chuẩn từ Bảng hàng Độc quyền của từng dự án.
+    Nếu phát hiện căn của dự án khác bị lẫn trong sheet đại lý, trả về None để loại bỏ.
     """
     unit = str(raw_unit_code or '').strip().upper().replace(' ', '')
     tower = str(raw_tower or '').strip().upper()
     floor = to_commercial_floor_code(raw_floor)
     axis = to_axis_code(raw_axis)
+
+    pkey = (project_key or sub_tab or '').strip().upper()
+
+    # =========================================================================
+    # 0. QUY TẮC CHUẨN HÓA DỰ ÁN HSG (LUMIÈRE HANOI SEASONS GARDEN)
+    # Cơ sở: Bảng hàng độc quyền Vhub (Tòa L1: HH-A, Tòa L2: HH-B)
+    # =========================================================================
+    if pkey in ('HSG', 'LUMIÈRE HANOI SEASONS GARDEN', 'LUMIERE HANOI SEASONS GARDEN', 'LUMIERE-HANOI-SEASONS-GARDEN'):
+        # 0.1 Lọc bỏ các căn thuộc dự án khác (C1, C2, C3, C5, F1, B1, Palma, The Bloom, V1, V2, V3, S1, S2, M1, M2, M3, Y1, Y2, Y3, Z1, Z2, Z3...)
+        foreign_prefixes = r'^(c1|c2|c3|c5|f1|b1|palma|the\s*bloom|v1|v2|v3|s1|s2|m1|m2|m3|y1|y2|y3|z1|z2|z3)'
+        if re.search(foreign_prefixes, unit, re.IGNORECASE) or re.search(foreign_prefixes, tower, re.IGNORECASE):
+            return None
+
+        target_tower = None
+        target_code_prefix = None
+        target_floor = None
+        target_axis = None
+
+        # Concatenated format: HHA2819, HHB1021
+        m_concat_a = re.match(r'^HHA(\d{2})([0-9]{2}[A-Z]?)$', unit, re.IGNORECASE)
+        m_concat_b = re.match(r'^HHB(\d{2})([0-9]{2}[A-Z]?)$', unit, re.IGNORECASE)
+
+        # Hyphen/Dot/Space format: HH-A-19-20, HHA-19-20, A-19-20, L1-19-20
+        m_sep_a = re.match(r'^(?:HH[-_.\s]*A|HHA|A|L1)[-_.\s]+(\d+[A-Z]?)[-_.\s]+(\d+[A-Z]?)$', unit, re.IGNORECASE)
+        m_sep_b = re.match(r'^(?:HH[-_.\s]*B|HHB|B|L2)[-_.\s]+(\d+[A-Z]?)[-_.\s]+(\d+[A-Z]?)$', unit, re.IGNORECASE)
+
+        if m_concat_a:
+            target_tower = 'L1'
+            target_code_prefix = 'HH-A'
+            target_floor = m_concat_a.group(1)
+            target_axis = m_concat_a.group(2)
+        elif m_concat_b:
+            target_tower = 'L2'
+            target_code_prefix = 'HH-B'
+            target_floor = m_concat_b.group(1)
+            target_axis = m_concat_b.group(2)
+        elif m_sep_a:
+            target_tower = 'L1'
+            target_code_prefix = 'HH-A'
+            target_floor = m_sep_a.group(1)
+            target_axis = m_sep_a.group(2)
+        elif m_sep_b:
+            target_tower = 'L2'
+            target_code_prefix = 'HH-B'
+            target_floor = m_sep_b.group(1)
+            target_axis = m_sep_b.group(2)
+        else:
+            clean_tw = re.sub(r'^(tòa|toà|block)\s*', '', tower, flags=re.IGNORECASE).strip().upper()
+            if clean_tw in ('L1', 'HH-A', 'HHA', 'A'):
+                target_tower = 'L1'
+                target_code_prefix = 'HH-A'
+            elif clean_tw in ('L2', 'HH-B', 'HHB', 'B'):
+                target_tower = 'L2'
+                target_code_prefix = 'HH-B'
+            else:
+                return None
+
+            parts = [p for p in re.split(r'[-_.\s]+', unit) if p]
+            if len(parts) >= 2 and re.search(r'\d', parts[-1]):
+                target_axis = parts[-1]
+                target_floor = parts[-2]
+            else:
+                target_floor = floor
+                target_axis = axis
+
+        if not target_tower or not target_floor or not target_axis:
+            return None
+
+        fl_str = str(target_floor).strip().upper()
+        ax_str = str(target_axis).strip().upper()
+
+        if re.match(r'^\d$', ax_str):
+            ax_str = f"0{ax_str}"
+        elif re.match(r'^\d[A-Z]$', ax_str):
+            ax_str = f"0{ax_str}"
+
+        if re.match(r'^\d$', fl_str):
+            fl_str = f"0{fl_str}"
+
+        # Trục trên Tòa L1: Trên 3D mặt bằng chỉ có trục 05A, không có trục 05
+        if target_tower == 'L1' and ax_str == '05':
+            ax_str = '05A'
+
+        norm_unit = f"{target_code_prefix}-{fl_str}-{ax_str}"
+        return {
+            "unit_code": norm_unit,
+            "tower": target_tower,
+            "floor": fl_str,
+            "axis": ax_str,
+            "subdivision": target_code_prefix
+        }
+
+    # =========================================================================
+    # 0.5 QUY TẮC CHUẨN HÓA DỰ ÁN MGC (MASTERI GRAND COAST)
+    # =========================================================================
+    if pkey in ('MGC', 'MASTERI GRAND COAST', 'MASTERI-GRAND-COAST'):
+        if re.search(r'^(c1|c2|hh|a-|b-)', unit, re.IGNORECASE) or re.search(r'^(c1|c2|hh|a-|b-)', tower, re.IGNORECASE):
+            return None
+        m_mgc = re.match(r'^(?:C5)?([LZ]\d)[-_.\s]+(\d+[A-Z]?)[-_.\s]+(\d+[A-Z]?)$', unit, re.IGNORECASE)
+        if m_mgc:
+            tw_code = m_mgc.group(1).upper()
+            fl_code = m_mgc.group(2).upper()
+            ax_code = m_mgc.group(3).upper()
+            if re.match(r'^\d$', ax_code): ax_code = f"0{ax_code}"
+            if re.match(r'^\d$', fl_code): fl_code = f"0{fl_code}"
+            return {
+                "unit_code": f"C5{tw_code}-{fl_code}-{ax_code}",
+                "tower": tw_code,
+                "floor": fl_code,
+                "axis": ax_code,
+                "subdivision": f"C5{tw_code}"
+            }
+
+    # =========================================================================
+    # 0.6 QUY TẮC CHUẨN HÓA DỰ ÁN MEL (MASTERI ERA LANDMARK)
+    # =========================================================================
+    if pkey in ('MEL', 'MASTERI ERA LANDMARK', 'MASTERI-ERA-LANDMARK'):
+        if re.search(r'^(c5|hh|a-|b-)', unit, re.IGNORECASE) or re.search(r'^(c5|hh|a-|b-)', tower, re.IGNORECASE):
+            return None
 
     # 1. Dạng dấu gạch ngang: 'A1-29-05', 'M1-10-04'
     hyphen_parts = unit.split('-')

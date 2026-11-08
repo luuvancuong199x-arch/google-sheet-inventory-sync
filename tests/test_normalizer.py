@@ -20,24 +20,42 @@ def test_sanitize_unit_code():
     assert sanitize_unit_code("  s6.0619.06*  ") == "S6.0619.06"
     assert sanitize_unit_code("SH-10 Xẻ khe") == "SH-10"
 
-def test_normalize_high_rise_unit_floor_axis_commercial_rules():
-    # Quy tắc hệ mã thương mại: Căn số/Trục căn và Tầng đều quy đổi
-    # 04 -> 05A, 07 -> 08A, 13 -> 12A, 14 -> 15A
+def test_normalize_high_rise_unit_floor_axis_grounded_rules():
+    # Quy tắc: 05 là 05, 05A là 05A; 08 là 08, 08A là 08A; 12 là 12, 12A là 12A; 15 là 15, 15A là 15A
+    # Tuyệt đối không tự phỏng đoán hay hoán đổi số. 04 giữ 04, 07 giữ 07, 13 giữ 13, 14 giữ 14.
     res1 = normalize_high_rise_unit_floor_axis("M1-10-04", raw_tower="", raw_floor="10", raw_axis="04")
-    assert res1["axis"] == "05A"  # 04 -> 05A theo quy tắc thương mại
+    assert res1["axis"] == "04"
     assert res1["tower"] == "M1"
     assert res1["floor"] == "10"
-    assert res1["unit_code"] == "M1-10-05A"
+    assert res1["unit_code"] == "M1-10-04"
 
     res2 = normalize_high_rise_unit_floor_axis("A1-04-07", raw_tower="", raw_floor="4", raw_axis="7")
-    assert res2["floor"] == "05A"  # 04 -> 05A
-    assert res2["axis"] == "08A"   # 07 -> 08A
-    assert res2["unit_code"] == "A1-05A-08A"
+    assert res2["floor"] == "04"
+    assert res2["axis"] == "07"
+    assert res2["unit_code"] == "A1-04-07"
 
     res3 = normalize_high_rise_unit_floor_axis("BS11-14-13", raw_tower="", raw_floor="14", raw_axis="13")
-    assert res3["floor"] == "15A"  # 14 -> 15A
-    assert res3["axis"] == "12A"   # 13 -> 12A
-    assert res3["unit_code"] == "BS11-15A-12A"
+    assert res3["floor"] == "14"
+    assert res3["axis"] == "13"
+    assert res3["unit_code"] == "BS11-14-13"
+
+    # Bảo tồn 05 và 05A riêng biệt
+    res_05 = normalize_high_rise_unit_floor_axis("M1-10-05", raw_tower="", raw_floor="10", raw_axis="05")
+    assert res_05["axis"] == "05"
+    res_05a = normalize_high_rise_unit_floor_axis("M1-10-05A", raw_tower="", raw_floor="10", raw_axis="5A")
+    assert res_05a["axis"] == "05A"
+
+    # Bảo tồn 08 và 08A riêng biệt
+    res_08 = normalize_high_rise_unit_floor_axis("M1-10-08", raw_tower="", raw_floor="10", raw_axis="8")
+    assert res_08["axis"] == "08"
+    res_08a = normalize_high_rise_unit_floor_axis("M1-10-08A", raw_tower="", raw_floor="10", raw_axis="8A")
+    assert res_08a["axis"] == "08A"
+
+    # Bảo tồn 12 và 12A riêng biệt
+    res_12 = normalize_high_rise_unit_floor_axis("M1-10-12", raw_tower="", raw_floor="10", raw_axis="12")
+    assert res_12["axis"] == "12"
+    res_12a = normalize_high_rise_unit_floor_axis("M1-10-12A", raw_tower="", raw_floor="10", raw_axis="12A")
+    assert res_12a["axis"] == "12A"
 
 def test_normalize_high_rise_hsg_grounded_rules():
     # Dự án HSG: Chuẩn hóa theo bảng hàng độc quyền (HH-A-[Tầng]-[Trục] và HH-B-[Tầng]-[Trục])
@@ -69,7 +87,8 @@ def test_normalize_high_rise_hsg_grounded_rules():
     assert hsg5["tower"] == "L2"
 
     hsg6 = normalize_high_rise_unit_floor_axis("HH-A-31-05", raw_tower="HH-A", project_key="HSG")
-    assert hsg6["axis"] == "05A"  # Trục 05 trên L1 tự động map sang 05A khớp 3D model
+    assert hsg6["axis"] == "05"  # 05 là 05, bảo tồn tuyệt đối giá trị gốc
+    assert hsg6["unit_code"] == "HH-A-31-05"
     assert hsg6["tower"] == "L1"
 
     # Lọc bỏ các căn dự án khác bị lẫn trong sheet đại lý

@@ -13,27 +13,35 @@ from datetime import date, datetime, timedelta
 from typing import Dict, Any, List, Optional, Tuple
 from src.config import DEFAULT_POLICY_YEAR
 
-# Bảng quy đổi hệ mã thương mại (Quy tắc nghiệp vụ: Áp dụng cho cả Mã Tầng và Mã Trục/Căn số)
-# Chuẩn hóa về hệ mã thương mại: 01, 02, 03, 05A (từ 04), 05, 06, 08A (từ 07), 08, 09, 10, 11, 12, 12A (từ 13), 15A (từ 14), 15, 16, 17, 18...
+# Danh mục quy chuẩn mã thương mại (Quy tắc người dùng: 05 là 05, 05A là 05A):
+# 01, 02, 03, 05A, 05, 06, 08A, 08, 09, 10, 11, 12, 12A, 15A, 15, 16, 17, 18 ...
+# Tuyệt đối không tự hoán đổi 04->05A, 07->08A, 13->12A, 14->15A hoặc 05<->05A.
 COMMERCIAL_CODE_MAP = {
     '1': '01', '01': '01',
     '2': '02', '02': '02',
     '3': '03', '03': '03',
-    '4': '05A', '04': '05A', '5A': '05A', '05A': '05A', '3A': '03A', '03A': '03A',
+    '3A': '03A', '03A': '03A',
+    '4': '04', '04': '04',
     '5': '05', '05': '05',
-    '6': '06', '06': '06', '6A': '06A', '06A': '06A',
-    '7': '08A', '07': '08A', '8A': '08A', '08A': '08A',
+    '5A': '05A', '05A': '05A',
+    '6': '06', '06': '06',
+    '6A': '06A', '06A': '06A',
+    '7': '07', '07': '07',
     '8': '08', '08': '08',
+    '8A': '08A', '08A': '08A',
     '9': '09', '09': '09',
     '10': '10',
     '11': '11',
     '12': '12',
-    '13': '12A', '12A': '12A',
-    '14': '15A', '15A': '15A',
+    '12A': '12A',
+    '13': '13',
+    '14': '14',
     '15': '15',
+    '15A': '15A',
     '16': '16',
     '17': '17',
-    '18': '18'
+    '18': '18',
+    '18A': '18A'
 }
 
 JUNK_CODE_REGEX = re.compile(
@@ -49,12 +57,13 @@ JUNK_CODE_REGEX = re.compile(
 
 def to_commercial_code(raw_token: Any) -> str:
     """
-    Quy tắc chuẩn hóa hệ mã thương mại cho cả Tầng và Trục/Căn số:
-    - 04 hoặc 4   -> 05A
-    - 07 hoặc 7   -> 08A
-    - 13          -> 12A
-    - 14          -> 15A
-    - Các số từ 1-9 pad số 0 phía trước: 01, 02, 03, 05, 06, 08, 09
+    Chuẩn hóa mã Tầng và Trục/Căn số:
+    - Tuyệt đối không tự ý phỏng đoán hoặc hoán đổi số:
+      05 là 05, 05A là 05A, 08 là 08, 08A là 08A, 12 là 12, 12A là 12A,
+      15 là 15, 15A là 15A, 18 là 18, 18A là 18A.
+    - Không ép đổi số thông thường sang số né phong thủy nếu dữ liệu không có (04 giữ 04, 07 giữ 07, 13 giữ 13, 14 giữ 14).
+    - Chuẩn hóa padding: các số đơn từ 1-9 và 1A-9A được thêm số 0 phía trước:
+      1 -> 01, 5 -> 05, 5A -> 05A, 8A -> 08A.
     """
     if raw_token is None:
         return ''
@@ -67,8 +76,7 @@ def to_commercial_code(raw_token: Any) -> str:
     if re.match(r'^\d[A-Z]$', s):
         return '0' + s
     if re.match(r'^\d$', s):
-        padded = '0' + s
-        return COMMERCIAL_CODE_MAP.get(padded, padded)
+        return '0' + s
     return s
 
 def to_commercial_floor_code(raw_token: Any) -> str:
@@ -220,9 +228,6 @@ def normalize_high_rise_unit_floor_axis(
         if re.match(r'^\d$', fl_str):
             fl_str = f"0{fl_str}"
 
-        # Trục trên Tòa L1: Trên 3D mặt bằng chỉ có trục 05A, không có trục 05
-        if target_tower == 'L1' and ax_str == '05':
-            ax_str = '05A'
 
         norm_unit = f"{target_code_prefix}-{fl_str}-{ax_str}"
         return {

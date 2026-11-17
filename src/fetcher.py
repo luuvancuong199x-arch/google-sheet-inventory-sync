@@ -33,6 +33,7 @@ from src.normalizer import (
     normalize_direction,
     sanitize_and_cross_validate_prices
 )
+from src.media_resolver import prefetch_drive_folders, expand_and_classify_media_urls
 
 logger = logging.getLogger(__name__)
 
@@ -221,6 +222,7 @@ def map_columns_from_headers(header_cells: List[str]) -> Dict[str, int]:
     col_map["fund_group"] = find_col([r'(nhóm\s*quỹ|nhom\s*quy|loại\s*quỹ|loai\s*quy|nguồn\s*quỹ|nguon\s*quy|thuộc\s*quỹ)'])
     col_map["chi_can"] = find_col([r'(ảnh\s*chỉ\s*căn|anh\s*chi\s*can|chỉ\s*căn|chi\s*can|mặt\s*bằng|mat\s*bang|layout|hình\s*ảnh|hinh\s*anh|link\s*ảnh|link\s*anh)'])
     col_map["ptg"] = find_col([r'(ảnh\s*phiếu\s*tính\s*giá|anh\s*phieu\s*tinh\s*gia|phiếu\s*tính\s*giá|phieu\s*tinh\s*gia|bảng\s*tính\s*giá|bang\s*tinh\s*gia|bảng\s*tính|bang\s*tinh|ảnh\s*ptg|anh\s*ptg|\bptg\b|link\s*ptg|tài\s*liệu|tai\s*lieu)'])
+    col_map["combined_media"] = find_col([r'(ptg\s*/\s*ảnh|ảnh\s*/\s*ptg|ptg/ảnh|ảnh/ptg|ảnh\s*chỉ\s*căn\s*\+\s*ptg|ptg\s*\+\s*ảnh)'])
     col_map["issue_date"] = find_col([r'(ngày\s*cấp|ngay\s*cap|ngày\s*vào\s*hàng|ngày\s*cập\s*nhật)'])
 
     return col_map
@@ -378,6 +380,19 @@ def parse_agency_grid_data(
         or (sheet_title and 'BHC' in str(sheet_title).upper() and ('DƯƠNG KINH' in str(project_key).upper() or 'GOLDEN' in str(project_key).upper()))
     )
     consecutive_empty_rows = 0
+
+    # Thu thập trước các link thư mục Google Drive để prefetch song song đa luồng
+    folder_candidates = []
+    media_col_indices = [cm.get(k, -1) for k in ('chi_can', 'ptg', 'combined_media') if cm.get(k, -1) != -1]
+    if media_col_indices:
+        for r_idx in range(header_idx + 1, len(grid_rows)):
+            row_data = grid_rows[r_idx]
+            for c_idx in media_col_indices:
+                for u in get_urls(row_data, c_idx):
+                    if 'folders/' in u or 'id=' in u or '/drive/' in u:
+                        folder_candidates.append(u)
+    if folder_candidates:
+        prefetch_drive_folders(folder_candidates)
 
     for r in range(header_idx + 1, len(grid_rows)):
         row = grid_rows[r]
@@ -643,10 +658,17 @@ def parse_agency_grid_data(
         # Media links
         chican_urls = get_urls(row, cm['chi_can'])
         ptg_urls = get_urls(row, cm['ptg'])
+        combined_urls = get_urls(row, cm.get('combined_media', -1))
         unit_urls = get_urls(row, cm['unit_code'])
         for u in unit_urls:
             if u not in chican_urls:
                 chican_urls.append(u)
+
+        chican_urls, ptg_urls = expand_and_classify_media_urls(
+            chican_urls=chican_urls,
+            ptg_urls=ptg_urls,
+            combined_urls=combined_urls
+        )
 
         media = resolve_unit_media_links(chican_urls, ptg_urls)
 

@@ -735,3 +735,59 @@ def test_stop_scanning_on_large_empty_row_gap():
     )
     assert len(parsed) == 1
     assert parsed[0]["unit_key"] == "BM5-77"
+
+
+def test_map_columns_combined_media():
+    headers = ["STT", "Phân khu", "Mã căn", "Loại hình", "DT đất", "Giá bán", "Ảnh chỉ căn", "Ảnh PTG", "PTG/Ảnh chỉ căn"]
+    col_map = map_columns_from_headers(headers)
+    assert col_map["chi_can"] == 6
+    assert col_map["ptg"] == 7
+    assert col_map["combined_media"] == 8
+
+
+def test_parse_agency_grid_data_with_drive_folder():
+    from src.media_resolver import _FOLDER_MEDIA_CACHE, _CACHE_LOCK
+    mock_fid = "mock_folder_hlx_test_001"
+    with _CACHE_LOCK:
+        _FOLDER_MEDIA_CACHE[mock_fid] = {
+            "chi_can": ["https://drive.google.com/file/d/mock_img_layout/view?usp=drivesdk"],
+            "ptg": ["https://drive.google.com/file/d/mock_img_ptg/view?usp=drivesdk"]
+        }
+
+    headers = ["STT", "Phân khu", "Mã căn", "Loại hình", "DT đất", "DTXD", "Giá full", "PTG/Ảnh chỉ căn"]
+    folder_url = f"https://drive.google.com/drive/folders/{mock_fid}"
+    grid_rows = [
+        [{"formattedValue": h} for h in headers],
+        [
+            {"formattedValue": "1"},
+            {"formattedValue": "VBMI"},
+            {"formattedValue": "BM79-26"},
+            {"formattedValue": "Liền kề"},
+            {"formattedValue": "60"},
+            {"formattedValue": "194.7"},
+            {"formattedValue": "9667053495"},
+            {"formattedValue": folder_url, "hyperlink": folder_url, "urls": [folder_url]}
+        ]
+    ]
+
+    parsed = parse_agency_grid_data(
+        grid_rows,
+        agency_name="Vhub Độc Quyền",
+        project_key="HLX",
+        is_low_rise=True,
+        existing_pool_keys=set(),
+        today_str="17/11/2026"
+    )
+
+    assert len(parsed) == 1
+    unit = parsed[0]
+    assert unit["unit_key"] == "BM79-26"
+    row_vals = unit["row_values"]
+    # Col 36: Ảnh chỉ căn
+    assert "mock_img_layout" in row_vals[36]
+    # Col 37: Ảnh PTG
+    assert "mock_img_ptg" in row_vals[37]
+    # Col 38: Gộp cả hai
+    assert "mock_img_layout" in row_vals[38]
+    assert "mock_img_ptg" in row_vals[38]
+

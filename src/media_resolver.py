@@ -1,10 +1,12 @@
 """
-Module xử lý mở rộng và phân loại link media từ Google Drive:
+Module xử lý mở rộng link media từ Google Drive theo quy tắc chuẩn:
 1. Phát hiện link thư mục Google Drive (drive.google.com/drive/folders/...).
 2. Truy vấn danh sách file trong thư mục qua Google Drive API kèm cơ chế cache bộ nhớ & disk persistence.
-3. Phân loại thông minh:
-   - File PNG / tỷ lệ dọc (h > w) / tên chứa PTG -> Ảnh Phiếu tính giá (pricing_sheet_images / Cột 37).
-   - File JPG / tỷ lệ ngang (w > h) / tên chứa layout / chỉ căn -> Ảnh chỉ căn (product_images / Cột 36).
+3. Nguyên tắc xử lý ảnh:
+   - Không tự ý phân tách riêng các ảnh trong cùng một folder thành các trường riêng biệt.
+   - Nếu có giá trị cụ thể ở cột riêng biệt (ví dụ: cột Ảnh PTG có link riêng) thì mới ghi riêng vào cột đó.
+   - Trường hợp folder chứa nhiều ảnh (ở cột gộp PTG/Ảnh chỉ căn hoặc media chung): đọc toàn bộ các link file
+     bên trong và ghi vào cột Ảnh chỉ căn / product_images dạng nhiều link như bình thường.
 4. Tạo link view trực tiếp dạng https://drive.google.com/file/d/{file_id}/view?usp=drivesdk.
 """
 
@@ -14,7 +16,7 @@ import time
 import json
 import logging
 import threading
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Dict, List, Any, Optional, Tuple, Union
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 logger = logging.getLogger(__name__)
@@ -25,12 +27,8 @@ DRIVE_FOLDER_REGEX = re.compile(
     re.IGNORECASE
 )
 
-# Regex phân loại tên file
-PTG_NAME_REGEX = re.compile(r'ptg|phiếu\s*tính|phieu\s*tinh|bảng\s*tính|bang\s*tinh', re.IGNORECASE)
-CHICAN_NAME_REGEX = re.compile(r'chỉ\s*căn|chi\s*can|mặt\s*bằng|mat\s*bang|layout|sơ\s*đồ|so\s*do|vi_tri', re.IGNORECASE)
-
 _CACHE_LOCK = threading.Lock()
-_FOLDER_MEDIA_CACHE: Dict[str, Dict[str, List[str]]] = {}
+_FOLDER_MEDIA_CACHE: Dict[str, Any] = {}
 _CACHE_INITIALIZED = False
 _thread_local = threading.local()
 
@@ -117,101 +115,57 @@ def save_cache_to_disk():
         logger.warning(f"Không thể lưu cache ra đĩa ({CACHE_FILE_PATH}): {e}")
 
 
-def classify_folder_files(files: List[Dict[str, Any]]) -> Dict[str, List[str]]:
-    """
-    Phân loại danh sách file trong thư mục Drive thành:
-    - chi_can: Ảnh chỉ căn (Layout, mặt bằng vị trí căn)
-    - ptg: Phiếu tính giá (PTG)
-    """
-    chi_can_urls = []
-    ptg_urls = []
-
-    for f in files:
-        file_id = f.get('id')
-        if not file_id:
-            continue
-        name = str(f.get('name', '')).strip()
-        mime = str(f.get('mimeType', '')).strip().lower()
-        meta = f.get('imageMediaMetadata', {}) or {}
-        w = int(meta.get('width', 0) or 0)
-        h = int(meta.get('height', 0) or 0)
-
-        view_url = f"https://drive.google.com/file/d/{file_id}/view?usp=drivesdk"
-
-        # Phân loại theo tên file hoặc định dạng PDF
-        if PTG_NAME_REGEX.search(name) or name.lower().endswith('.pdf'):
-            ptg_urls.append(view_url)
-            continue
-        if CHICAN_NAME_REGEX.search(name):
-            chi_can_urls.append(view_url)
-            continue
-
-        # Phân loại theo tỷ lệ khung hình thực tế
-        if w > 0 and h > 0:
-            if h > w:
-                # Ảnh dọc (portrait, tỷ lệ > 1) -> Phiếu tính giá
-                ptg_urls.append(view_url)
-            else:
-                # Ảnh ngang (landscape, tỷ lệ <= 1) -> Mặt bằng chỉ căn
-                chi_can_urls.append(view_url)
-            continue
-
-        # Phân loại fallback theo đuôi mở rộng phổ biến
-        name_lower = name.lower()
-        if name_lower.endswith('.png'):
-            ptg_urls.append(view_url)
-        elif name_lower.endswith(('.jpg', '.jpeg', '.webp')):
-            chi_can_urls.append(view_url)
-        else:
-            chi_can_urls.append(view_url)
-
-    # Nếu chỉ có 1 ảnh duy nhất trong folder mà một bên rỗng -> gán cho bên còn lại
-    if len(files) == 1 and files[0].get('id'):
-        single_url = f"https://drive.google.com/file/d/{files[0]['id']}/view?usp=drivesdk"
-        if not chi_can_urls:
-            chi_can_urls.append(single_url)
-        if not ptg_urls:
-            ptg_urls.append(single_url)
-
-    return {
-        "chi_can": chi_can_urls,
-        "ptg": ptg_urls
-    }
-
-
-def fetch_drive_folder_media(
+def fetch_drive_folder_files(
     folder_id: str,
     drive_service: Optional[Any] = None
-) -> Dict[str, List[str]]:
-    """Truy vấn Google Drive API để lấy và phân loại danh sách file trong thư mục."""
+) -> List[str]:
+    """
+    Truy vấn Google Drive API để lấy toàn bộ danh sách file trong thư mục.
+    Tương thích với cả định dạng cache cũ và mới.
+    """
     init_cache_if_needed()
 
     with _CACHE_LOCK:
         if folder_id in _FOLDER_MEDIA_CACHE:
-            return _FOLDER_MEDIA_CACHE[folder_id]
+            entry = _FOLDER_MEDIA_CACHE[folder_id]
+            if isinstance(entry, list):
+                return list(entry)
+            if isinstance(entry, dict):
+                urls = []
+                for u in entry.get("all_files", []):
+                    if u not in urls:
+                        urls.append(u)
+                for u in entry.get("chi_can", []) + entry.get("ptg", []):
+                    if u not in urls:
+                        urls.append(u)
+                if urls:
+                    return urls
 
     if drive_service is None:
         drive_service = get_thread_drive_service()
     if drive_service is None:
-        return {"chi_can": [], "ptg": []}
+        return []
 
     try:
         call = drive_service.files().list(
             q=f"'{folder_id}' in parents and trashed = false",
-            fields="files(id, name, mimeType, imageMediaMetadata)",
+            fields="files(id, name, mimeType)",
             pageSize=50
         )
         resp = _execute_api_call(call)
         files = resp.get("files", [])
-        classified = classify_folder_files(files)
+        urls = [
+            f"https://drive.google.com/file/d/{f['id']}/view?usp=drivesdk"
+            for f in files if f.get('id')
+        ]
 
         with _CACHE_LOCK:
-            _FOLDER_MEDIA_CACHE[folder_id] = classified
+            _FOLDER_MEDIA_CACHE[folder_id] = urls
 
-        return classified
+        return urls
     except Exception as e:
         logger.warning(f"Lỗi khi đọc thư mục Drive {folder_id}: {e}")
-        return {"chi_can": [], "ptg": []}
+        return []
 
 
 def prefetch_drive_folders(
@@ -236,16 +190,15 @@ def prefetch_drive_folders(
     logger.info(f"Đang prefetch {len(unique_folder_ids)} thư mục Google Drive song song ({max_workers} luồng)...")
 
     newly_fetched = 0
-    # Mỗi worker thread trong executor tự sử dụng instance drive_service riêng qua get_thread_drive_service()
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {
-            executor.submit(fetch_drive_folder_media, fid, None): fid
+            executor.submit(fetch_drive_folder_files, fid, None): fid
             for fid in unique_folder_ids
         }
         for future in as_completed(futures):
             try:
                 res = future.result()
-                if res.get("chi_can") or res.get("ptg"):
+                if res:
                     newly_fetched += 1
             except Exception as e:
                 fid = futures[future]
@@ -263,71 +216,71 @@ def expand_and_classify_media_urls(
     drive_service: Optional[Any] = None
 ) -> Tuple[List[str], List[str]]:
     """
-    Mở rộng tất cả link thư mục Drive thành các file ảnh cụ thể, phân loại thành:
-    - final_chican: [link_chi_can_1, ...]
-    - final_ptg: [link_ptg_1, ...]
-    Nếu gặp URL dạng thư mục: thay thế bằng các file bên trong thư mục.
-    Nếu không mở rộng được (lỗi Drive): giữ nguyên link thư mục gốc.
+    Quy tắc chuẩn hóa link media theo yêu cầu:
+    1. Không tự tách riêng các ảnh trong folder thành các trường riêng biệt.
+    2. Nếu có giá trị cụ thể ở cột riêng (cột Ảnh PTG hoặc cột Ảnh chỉ căn) thì ghi vào cột tương ứng.
+    3. Trường hợp folder chứa nhiều ảnh (ở cột gộp PTG/Ảnh chỉ căn hoặc media chung),
+       đọc toàn bộ các link trong đó và ghi vào final_chican (cột product_images) dạng nhiều link.
+    4. Trả về (final_chican, final_ptg).
     """
     final_chican: List[str] = []
     final_ptg: List[str] = []
 
-    def process_url(u: str, hint_type: str):
+    def add_chican(u: str):
+        if u and u not in final_chican:
+            final_chican.append(u)
+
+    def add_ptg(u: str):
+        if u and u not in final_ptg:
+            final_ptg.append(u)
+
+    # 1. Xử lý các link từ cột Chỉ căn (nếu có)
+    for u in (chican_urls or []):
         if not u or not isinstance(u, str):
-            return
+            continue
         u_clean = u.strip()
         fid = extract_drive_folder_id(u_clean)
         if fid:
-            media = fetch_drive_folder_media(fid, drive_service=drive_service)
-            chi_can_files = media.get("chi_can", [])
-            ptg_files = media.get("ptg", [])
-
-            if chi_can_files or ptg_files:
-                for c in chi_can_files:
-                    if c not in final_chican:
-                        final_chican.append(c)
-                for p in ptg_files:
-                    if p not in final_ptg:
-                        final_ptg.append(p)
-                return
-            # Nếu folder rỗng hoặc không đọc được, fallback giữ link folder gốc
-            if hint_type == "chi_can" and u_clean not in final_chican:
-                final_chican.append(u_clean)
-            elif hint_type == "ptg" and u_clean not in final_ptg:
-                final_ptg.append(u_clean)
-            elif hint_type == "combined":
-                if u_clean not in final_chican:
-                    final_chican.append(u_clean)
-            return
-
-        # Là link file thông thường
-        if hint_type == "chi_can":
-            if u_clean not in final_chican:
-                final_chican.append(u_clean)
-        elif hint_type == "ptg":
-            if u_clean not in final_ptg:
-                final_ptg.append(u_clean)
-        elif hint_type == "combined":
-            # Phân loại link file trong cột gộp
-            u_lower = u_clean.lower()
-            if PTG_NAME_REGEX.search(u_lower) or u_lower.endswith('.pdf') or 'ptg' in u_lower:
-                if u_clean not in final_ptg:
-                    final_ptg.append(u_clean)
-            elif CHICAN_NAME_REGEX.search(u_lower) or 'mat_bang' in u_lower:
-                if u_clean not in final_chican:
-                    final_chican.append(u_clean)
+            files = fetch_drive_folder_files(fid, drive_service=drive_service)
+            if files:
+                for f_url in files:
+                    add_chican(f_url)
             else:
-                # Không rõ -> đưa vào cả 2 hoặc chỉ căn
-                if u_clean not in final_chican:
-                    final_chican.append(u_clean)
+                add_chican(u_clean)
+        else:
+            add_chican(u_clean)
 
-    for u in (chican_urls or []):
-        process_url(u, "chi_can")
-
-    for u in (ptg_urls or []):
-        process_url(u, "ptg")
-
+    # 2. Xử lý các link từ cột gộp (PTG/Ảnh chỉ căn hoặc media chung)
+    # Toàn bộ file trong folder gộp được đọc và lưu vào final_chican (product_images) dạng nhiều link
     for u in (combined_urls or []):
-        process_url(u, "combined")
+        if not u or not isinstance(u, str):
+            continue
+        u_clean = u.strip()
+        fid = extract_drive_folder_id(u_clean)
+        if fid:
+            files = fetch_drive_folder_files(fid, drive_service=drive_service)
+            if files:
+                for f_url in files:
+                    add_chican(f_url)
+            else:
+                add_chican(u_clean)
+        else:
+            add_chican(u_clean)
+
+    # 3. Xử lý các link cụ thể từ cột PTG (chỉ ghi khi có giá trị cụ thể tại cột này)
+    for u in (ptg_urls or []):
+        if not u or not isinstance(u, str):
+            continue
+        u_clean = u.strip()
+        fid = extract_drive_folder_id(u_clean)
+        if fid:
+            files = fetch_drive_folder_files(fid, drive_service=drive_service)
+            if files:
+                for f_url in files:
+                    add_ptg(f_url)
+            else:
+                add_ptg(u_clean)
+        else:
+            add_ptg(u_clean)
 
     return final_chican, final_ptg

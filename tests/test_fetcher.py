@@ -783,10 +783,11 @@ def test_parse_agency_grid_data_with_drive_folder():
     unit = parsed[0]
     assert unit["unit_key"] == "BM79-26"
     row_vals = unit["row_values"]
-    # Col 36: Ảnh chỉ căn
+    # Col 36: Toàn bộ ảnh trong folder phải nằm ở cột Ảnh chỉ căn
     assert "mock_img_layout" in row_vals[36]
-    # Col 37: Ảnh PTG
-    assert "mock_img_ptg" in row_vals[37]
+    assert "mock_img_ptg" in row_vals[36]
+    # Col 37: Không tự tách sang cột Ảnh PTG khi không có giá trị cụ thể ở cột PTG
+    assert row_vals[37] == ""
     # Col 38: Gộp cả hai
     assert "mock_img_layout" in row_vals[38]
     assert "mock_img_ptg" in row_vals[38]

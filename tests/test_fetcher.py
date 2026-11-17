@@ -230,7 +230,7 @@ def test_shifted_table_detection():
     assert len(parsed) == 1
     unit = parsed[0]
     assert unit["status"] == "Đã bán"  # 'Thu hồi' -> Đã bán
-    assert unit["row_values"][4] == "BTSL"  # Grounded unit type for SL is BTSL
+    assert unit["row_values"][4] == "Biệt thự Song lập"  # Grounded unit type for SL is Biệt thự Song lập
     assert unit["row_values"][5] == 140.0 # Land area correctly detected as 140
     assert unit["row_values"][20] == ""   # Direction cleaned (no 11.833)!
 
@@ -519,7 +519,7 @@ def test_extended_sold_keywords():
     test_cases = [
         ("LK-01", "Còn hàng", "Khách đã cọc thiện chí"),
         ("LK-02", "Đang lock", "Khóa căn chờ ráp"),
-        ("LK-03", "Còn hàng", "Đã ký TTĐC"),
+        ("LK-03", "Còn hàng", "Đã nhận cọc"),
         ("LK-04", "Còn hàng", "Vào cọc hôm nay"),
     ]
     grid_rows = [[{"formattedValue": h} for h in headers]]
@@ -550,3 +550,188 @@ def test_extended_sold_keywords():
 
 
 
+
+
+def test_ttdc_and_disbursement_do_not_trigger_sold():
+    """Kiểm tra ghi chú TTĐC và giải ngân trên cọc TUYỆT ĐỐI KHÔNG làm căn bị chuyển sang Đã bán."""
+    headers = ["STT", "Mã căn", "Giá full", "Trạng thái", "Ghi chú"]
+    test_cases = [
+        ("AN13-01", "Còn hàng", "TTĐC - Chờ giải chấp mới ký HĐMB"),
+        ("ĐLHV-150", "Còn hàng", "TTĐC"),
+        ("SV13-08", "Còn hàng", "CN HĐMB quỹ VPB - không cần giải chấp\nGiải ngân trên cọc - đóng 100% tiền mới được ký HĐCN (hạn T+30)"),
+        ("SV6-08", "", ""),
+    ]
+    grid_rows = [[{"formattedValue": h} for h in headers]]
+    for idx, (code, st, note) in enumerate(test_cases, 1):
+        grid_rows.append([
+            {"formattedValue": str(idx)},
+            {"formattedValue": code},
+            {"formattedValue": "10.000.000.000"},
+            {"formattedValue": st},
+            {"formattedValue": note},
+        ])
+
+    parsed = parse_agency_grid_data(
+        grid_rows,
+        agency_name="Vhub",
+        project_key="làng vân",
+        is_low_rise=True,
+        existing_pool_keys=set(),
+        today_str="10/11/2026"
+    )
+    assert len(parsed) == 4
+    for item in parsed:
+        assert item["status"] == "Còn hàng"
+        assert item["row_values"][31] == "Còn hàng"
+
+
+def test_extract_urls_from_cell_data_all_sources():
+    from src.fetcher import extract_urls_from_cell_data
+
+    # 1. Smart chips with richLinkProperties
+    cell_chip = {
+        "formattedValue": "TN1.SP-20.jpg",
+        "chipRuns": [
+            {
+                "chip": {
+                    "richLinkProperties": {
+                        "uri": "https://drive.google.com/file/d/1ABCXYZ_drive_chip/view?usp=drive_link"
+                    }
+                }
+            }
+        ]
+    }
+    assert extract_urls_from_cell_data(cell_chip) == [
+        "https://drive.google.com/file/d/1ABCXYZ_drive_chip/view?usp=drive_link"
+    ]
+
+    # 2. Smart chips with driveFile id
+    cell_chip_file = {
+        "formattedValue": "TP2.SP-03.jpg",
+        "chipRuns": [
+            {
+                "chip": {
+                    "driveFile": {
+                        "id": "1FILE_ID_999"
+                    }
+                }
+            }
+        ]
+    }
+    assert extract_urls_from_cell_data(cell_chip_file) == [
+        "https://drive.google.com/file/d/1FILE_ID_999/view"
+    ]
+
+    # 3. Rich text format runs
+    cell_rich = {
+        "formattedValue": "Xem link 1 va link 2",
+        "textFormatRuns": [
+            {"format": {"link": {"uri": "https://drive.google.com/open?id=rich1"}}},
+            {"format": {"link": {"uri": "https://drive.google.com/open?id=rich2"}}}
+        ]
+    }
+    assert extract_urls_from_cell_data(cell_rich) == [
+        "https://drive.google.com/open?id=rich1",
+        "https://drive.google.com/open?id=rich2"
+    ]
+
+    # 4. Formula =HYPERLINK
+    cell_formula = {
+        "formattedValue": "Bấm vào đây",
+        "userEnteredValue": {
+            "formulaValue": '=HYPERLINK("https://drive.google.com/file/d/formula_id/view", "PTG")'
+        }
+    }
+    assert extract_urls_from_cell_data(cell_formula) == [
+        "https://drive.google.com/file/d/formula_id/view"
+    ]
+
+    # 5. Direct hyperlink + plain text deduplication
+    cell_combo = {
+        "formattedValue": "File tai: https://drive.google.com/file/d/combo_id/view",
+        "hyperlink": "https://drive.google.com/file/d/combo_id/view"
+    }
+    assert extract_urls_from_cell_data(cell_combo) == [
+        "https://drive.google.com/file/d/combo_id/view"
+    ]
+
+
+def test_parse_agency_grid_data_smart_chips():
+    from src.fetcher import parse_agency_grid_data
+
+    headers = ["STT", "Mã căn", "Giá full", "Ảnh chỉ căn", "Ảnh phiếu tính giá", "Trạng thái"]
+    grid_rows = [
+        [{"formattedValue": h} for h in headers],
+        [
+            {"formattedValue": "1"},
+            {"formattedValue": "TN1.SP-20"},
+            {"formattedValue": "15.000.000.000"},
+            {
+                "formattedValue": "TN1.SP-20.jpg",
+                "urls": ["https://drive.google.com/file/d/1CHICAN_ID/view?usp=drive_link"]
+            },
+            {
+                "formattedValue": "TN1.SP-20_PTG.jpg",
+                "urls": ["https://drive.google.com/file/d/1PTG_ID/view?usp=drive_link"]
+            },
+            {"formattedValue": "Còn hàng"}
+        ]
+    ]
+
+    parsed = parse_agency_grid_data(
+        grid_rows,
+        agency_name="Vhub",
+        project_key="global gate",
+        is_low_rise=True,
+        existing_pool_keys=set(),
+        today_str="15/11/2026"
+    )
+    assert len(parsed) == 1
+    item = parsed[0]
+    # Row values col 36 (Ảnh chỉ căn) and col 37 (Ảnh phiếu tính giá)
+    assert item["row_values"][36] == "https://drive.google.com/file/d/1CHICAN_ID/view?usp=drive_link"
+    assert item["row_values"][37] == "https://drive.google.com/file/d/1PTG_ID/view?usp=drive_link"
+
+
+def test_stop_scanning_on_bhc_cu_banner():
+    headers = ["STT", "Mã căn", "Giá full", "Trạng thái"]
+    grid_rows = [
+        [{"formattedValue": h} for h in headers],
+        [{"formattedValue": "1"}, {"formattedValue": "TH8-75"}, {"formattedValue": "10000000000"}, {"formattedValue": "Còn hàng"}],
+        [{"formattedValue": "BHC CŨ"}, {"formattedValue": ""}, {"formattedValue": ""}, {"formattedValue": ""}],
+        [{"formattedValue": "2"}, {"formattedValue": "TH5A-03"}, {"formattedValue": "10000000000"}, {"formattedValue": "Còn hàng"}]
+    ]
+    parsed = parse_agency_grid_data(
+        grid_rows,
+        agency_name="MDLAND",
+        project_key="DƯƠNG KINH",
+        is_low_rise=True,
+        existing_pool_keys=set(),
+        today_str="16/11/2026"
+    )
+    assert len(parsed) == 1
+    assert parsed[0]["unit_key"] == "TH8-75"
+
+
+def test_stop_scanning_on_large_empty_row_gap():
+    headers = ["STT", "Mã căn", "Giá full", "Trạng thái"]
+    grid_rows = [
+        [{"formattedValue": h} for h in headers],
+        [{"formattedValue": "1"}, {"formattedValue": "BM5-77"}, {"formattedValue": "12000000000"}, {"formattedValue": "Còn hàng"}]
+    ]
+    # Add 16 empty rows
+    for _ in range(16):
+        grid_rows.append([{"formattedValue": ""} for _ in headers])
+    # Add an old unit after gap
+    grid_rows.append([{"formattedValue": "2"}, {"formattedValue": "OLD-999"}, {"formattedValue": "9000000000"}, {"formattedValue": "Còn hàng"}])
+
+    parsed = parse_agency_grid_data(
+        grid_rows,
+        agency_name="ANY_AGENCY",
+        project_key="ANY_PROJECT",
+        is_low_rise=True,
+        existing_pool_keys=set(),
+        today_str="16/11/2026"
+    )
+    assert len(parsed) == 1
+    assert parsed[0]["unit_key"] == "BM5-77"

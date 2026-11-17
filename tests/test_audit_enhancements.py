@@ -67,17 +67,17 @@ class TestDirectionNormalization:
 
 class TestTypeNormalization:
     def test_low_rise_types_canonical(self):
-        assert normalize_low_rise_type("LIÊN KẾ") == "LK"
-        assert normalize_low_rise_type("Liền kề") == "LK"
-        assert normalize_low_rise_type("Liền Kề") == "LK"
-        assert normalize_low_rise_type("Biệt thự Song lập") == "BTSL"
-        assert normalize_low_rise_type("Song lập") == "BTSL"
-        assert normalize_low_rise_type("Biệt thự Đơn lập") == "BTĐL"
-        assert normalize_low_rise_type("Đơn lập") == "BTĐL"
-        assert normalize_low_rise_type("Shophouse") == "SH"
-        assert normalize_low_rise_type("Nhà phố") == "SH"
+        assert normalize_low_rise_type("LIÊN KẾ") == "Liền kề"
+        assert normalize_low_rise_type("Liền kề") == "Liền kề"
+        assert normalize_low_rise_type("Liền Kề") == "Liền kề"
+        assert normalize_low_rise_type("Biệt thự Song lập") == "Biệt thự Song lập"
+        assert normalize_low_rise_type("Song lập") == "Biệt thự Song lập"
+        assert normalize_low_rise_type("Biệt thự Đơn lập") == "Biệt thự Đơn lập"
+        assert normalize_low_rise_type("Đơn lập") == "Biệt thự Đơn lập"
+        assert normalize_low_rise_type("Shophouse") == "Shophouse"
+        assert normalize_low_rise_type("Nhà phố") == "Shophouse"
         assert normalize_low_rise_type("TMDV") == "TMDV"
-        assert normalize_low_rise_type("Tứ lập") == "BTTL"
+        assert normalize_low_rise_type("Tứ lập") == "Biệt thự Tứ lập"
 
     def test_high_rise_types_canonical(self):
         assert normalize_high_rise_type("1 Phòng ngủ+") == "1PN+"

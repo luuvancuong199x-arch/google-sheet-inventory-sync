@@ -176,7 +176,7 @@ def map_columns_from_headers(header_cells: List[str]) -> Dict[str, int]:
         r'(mã\s*căn|ma\s*can)'
     ])
     col_map["zone"] = find_col([r'(phân\s*khu|phan\s*khu|khu|tiểu\s*khu|đường|duong)'])
-    col_map["unit_type"] = find_col([r'(loại\s*hình|loai\s*hinh|loại\s*căn|loai\s*can|dòng\s*căn|dong\s*can|loại\s*ch|loại\s*căn\s*hộ|loai\s*can\s*ho)'])
+    col_map["unit_type"] = find_col([r'^(?!.*(ký\s*hđ|ky\s*hd|hợp\s*đồng|hop\s*dong|pháp\s*lý|phap\s*ly|hình\s*thức\s*ký)).*(loại\s*hình|loai\s*hinh|loại\s*căn|loai\s*can|dòng\s*căn|dong\s*can|loại\s*ch|loại\s*căn\s*hộ|loai\s*can\s*ho)'])
     col_map["tcbg"] = find_col([r'(tcbg|tiêu\s*chuẩn\s*bàn\s*giao|bàn\s*giao)'])
     col_map["direction"] = find_col([r'^(hướng|huong|hướng\s*cửa|hướng\s*ban\s*công|hướng\s*bc)$', r'(hướng|huong)'])
     col_map["tower"] = find_col([r'^(tòa|toà|tên\s*(tòa|toà)|toa|block|mã\s*(tòa|toà))$', r'(tên\s*(tòa|toà)|tòa|toà|toa)'])
@@ -201,7 +201,7 @@ def map_columns_from_headers(header_cells: List[str]) -> Dict[str, int]:
         r'^(?!.*(giá|tổng\s*cộng|chưa\s*gồm|gồm\s*vat)).*(kpbt|kinh\s*phí\s*bảo\s*trì)'
     ])
     col_map["gia_full"] = find_col([
-        r'^(?!.*(chưa|chua|trước|truoc|đơn\s*giá|don\s*gia|/m2|/m²)).*(gồm\s*vat|gom\s*vat|giá\s*full|tổng\s*giá|giá\s*niêm\s*yết|giá\s*bán\s*gồm|giá\s*all-in)',
+        r'^(?!.*(chưa\s*gồm\s*vat|chưa\s*vat|trước\s*vat|chua\s*vat|chua\s*gom\s*vat|truoc\s*vat|đơn\s*giá|don\s*gia|/m2|/m²)).*(gồm\s*vat|gom\s*vat|giá\s*full|tổng\s*giá|giá\s*niêm\s*yết|giá\s*bán\s*gồm|giá\s*all-in)',
         r'^(giá\s*bán|giá|tổng\s*giá)$'
     ])
     col_map["gia_vay"] = find_col([r'(giá\s*vay|vay\s*nh|htls|vay\s*70|vay\s*htls|vvnh|giá\s*vvnh)'])
@@ -219,11 +219,64 @@ def map_columns_from_headers(header_cells: List[str]) -> Dict[str, int]:
         r'(\bđq\b|\bdq\b|\bqđq\b|\bdqd\b)'
     ])
     col_map["fund_group"] = find_col([r'(nhóm\s*quỹ|nhom\s*quy|loại\s*quỹ|loai\s*quy|nguồn\s*quỹ|nguon\s*quy|thuộc\s*quỹ)'])
-    col_map["chi_can"] = find_col([r'(ảnh\s*chỉ\s*căn|chỉ\s*căn|mặt\s*bằng|layout|hình\s*ảnh|link\s*ảnh)'])
-    col_map["ptg"] = find_col([r'(phiếu\s*tính\s*giá|ptg|bảng\s*tính|link\s*ptg|tài\s*liệu)'])
+    col_map["chi_can"] = find_col([r'(ảnh\s*chỉ\s*căn|anh\s*chi\s*can|chỉ\s*căn|chi\s*can|mặt\s*bằng|mat\s*bang|layout|hình\s*ảnh|hinh\s*anh|link\s*ảnh|link\s*anh)'])
+    col_map["ptg"] = find_col([r'(ảnh\s*phiếu\s*tính\s*giá|anh\s*phieu\s*tinh\s*gia|phiếu\s*tính\s*giá|phieu\s*tinh\s*gia|bảng\s*tính\s*giá|bang\s*tinh\s*gia|bảng\s*tính|bang\s*tinh|ảnh\s*ptg|anh\s*ptg|\bptg\b|link\s*ptg|tài\s*liệu|tai\s*lieu)'])
     col_map["issue_date"] = find_col([r'(ngày\s*cấp|ngay\s*cap|ngày\s*vào\s*hàng|ngày\s*cập\s*nhật)'])
 
     return col_map
+
+
+def extract_urls_from_cell_data(c: Dict[str, Any]) -> List[str]:
+    """
+    Trích xuất toàn diện danh sách URL từ mọi cấu trúc dữ liệu ô của Google Sheets API:
+    1. Smart Chips (Google Drive File Chips, Media, People, etc.) qua chipRuns
+    2. Rich text format runs qua textFormatRuns
+    3. Direct cell hyperlink qua hyperlink
+    4. Formulas (=HYPERLINK(...)) qua userEnteredValue.formulaValue
+    5. Plain text URLs trong userEnteredValue.stringValue hoặc formattedValue
+    """
+    found_urls = []
+    seen = set()
+
+    def add_u(u_raw):
+        if not u_raw:
+            return
+        u_str = str(u_raw).strip()
+        for m in re.findall(r'https?://[^\s"\'<>)\],;]+', u_str):
+            clean_u = m.strip().rstrip('.,;')
+            if clean_u and clean_u not in seen:
+                seen.add(clean_u)
+                found_urls.append(clean_u)
+
+    # 1. Smart Chips
+    for cr in c.get('chipRuns', []) or []:
+        chip = cr.get('chip', {}) if isinstance(cr, dict) else {}
+        rich = chip.get('richLinkProperties', {})
+        add_u(rich.get('uri'))
+        df = chip.get('driveFile', {}) or chip.get('file', {})
+        fid = df.get('id') or df.get('driveId')
+        if fid:
+            add_u(f"https://drive.google.com/file/d/{fid}/view")
+
+    # 2. Rich text format runs
+    for r in c.get('textFormatRuns', []) or []:
+        fmt = r.get('format', {}) if isinstance(r, dict) else {}
+        link = fmt.get('link', {})
+        add_u(link.get('uri'))
+
+    # 3. Direct cell hyperlink
+    add_u(c.get('hyperlink'))
+
+    # 4. userEnteredValue (Formula & String)
+    uev = c.get('userEnteredValue', {}) or {}
+    if isinstance(uev, dict):
+        add_u(uev.get('formulaValue'))
+        add_u(uev.get('stringValue'))
+
+    # 5. formattedValue
+    add_u(c.get('formattedValue'))
+
+    return found_urls
 
 def detect_header_row(rows: List[List[str]]) -> Optional[Tuple[int, Dict[str, int]]]:
     """Quét 35 dòng đầu để tìm dòng Header phù hợp nhất."""
@@ -299,13 +352,58 @@ def parse_agency_grid_data(
             return unicodedata.normalize('NFC', val)
         return val
 
-    def get_url(row, c_idx):
+    def get_urls(row, c_idx):
         cell = get_cell(row, c_idx)
-        return cell.get('hyperlink', '') or cell.get('formattedValue', '')
+        urls = cell.get('urls', [])
+        if urls:
+            return list(urls)
+        hl = cell.get('hyperlink', '')
+        fv = cell.get('formattedValue', '')
+        found = []
+        if hl and str(hl).startswith('http'):
+            found.append(str(hl).strip())
+        for m in re.findall(r'https?://[^\s"\'<>)\],;]+', str(fv or '')):
+            clean_u = m.strip().rstrip('.,;')
+            if clean_u and clean_u not in found:
+                found.append(clean_u)
+        return found
+
+    def get_url(row, c_idx):
+        u_list = get_urls(row, c_idx)
+        return u_list[0] if u_list else '' 
+
+    is_mdland_golden_city = bool(
+        '1J3UZdjPZtCQlT-me75mUjeSYgWw7ciHUJYE1ThrTJtg' in str(agency_url)
+        or (agency_name and 'MDLAND' in str(agency_name).upper() and ('DƯƠNG KINH' in str(project_key).upper() or 'GOLDEN' in str(project_key).upper()))
+        or (sheet_title and 'BHC' in str(sheet_title).upper() and ('DƯƠNG KINH' in str(project_key).upper() or 'GOLDEN' in str(project_key).upper()))
+    )
+    consecutive_empty_rows = 0
 
     for r in range(header_idx + 1, len(grid_rows)):
         row = grid_rows[r]
-        row_str = ' '.join([c.get('formattedValue', '') for c in row]).strip()
+        row_str = ' '.join([str(c.get('formattedValue', '') if isinstance(c, dict) else c or '') for c in row]).strip()
+
+        # 0. Điều kiện giới hạn dòng riêng biệt cho bảng hàng MDLAND Dương Kinh (nguồn chỉ cần đồng bộ tới dòng 58)
+        if is_mdland_golden_city:
+            if r >= 58 or (len(scanned_units) >= 54 and r >= 54):
+                logger.info(f"[{agency_name}] Dừng quét tại dòng {r+1} (nguồn Dương Kinh chỉ đồng bộ tới dòng 58, tổng {len(scanned_units)} căn).")
+                break
+
+        # 0.1 Xử lý phát hiện khoảng trống lớn (>= 15 dòng trống liên tiếp sau khi đã quét được căn hợp lệ)
+        if not row_str:
+            consecutive_empty_rows += 1
+            if len(scanned_units) > 0 and consecutive_empty_rows >= 15:
+                logger.info(f"[{agency_name}] Dừng quét tại dòng {r+1} do gặp khoảng trống lớn ({consecutive_empty_rows} dòng trống liên tiếp).")
+                break
+            continue
+        else:
+            consecutive_empty_rows = 0
+
+        # 0.2 Kiểm tra banner BHC CŨ / BẢNG HÀNG CŨ / HÀNG CŨ / QUỸ CŨ (Dừng quét để tránh nạp các căn cũ)
+        if (re.search(r"\b(bhc\s*cũ|bhc\s*cu|bảng\s*hàng\s*cũ|bang\s*hang\s*cu|hàng\s*cũ|hang\s*cu|quỹ\s*cũ|quy\s*cu|bảng\s*cũ|bang\s*cu)\b", row_str, re.IGNORECASE)
+                and not re.search(r"\b[a-z]{1,4}\d{1,4}-\d{1,4}\b", row_str, re.IGNORECASE)):
+            logger.info(f"[{agency_name}] Dừng quét tại dòng {r+1} do phát hiện banner bảng hàng cũ: '{row_str}'")
+            break
 
         # Kiểm tra banner ĐÃ BÁN / ĐANG BÁN / QUỸ CHUNG
         if (re.search(r'(căn\s*đã\s*bán|bảng\s*hàng\s*đã\s*bán|quỹ\s*đã\s*bán|quy\s*da\s*ban|danh\s*sách\s*đã\s*bán|đã\s*giao\s*dịch|da\s*giao\s*dich|căn\s*đã\s*cọc)', row_str, re.IGNORECASE)
@@ -361,6 +459,8 @@ def parse_agency_grid_data(
         if re.search(r'^(phân\s*khu|bảng\s*hàng|đơn\s*lập|song\s*lập|liền\s*kề|biệt\s*thự|shophouse|tổng\s*cộng|căn\s*hộ|ghi\s*chú|demo|test|đlmc|dlmc|lp)$', unit_code, re.IGNORECASE):
             continue
         if re.search(r'^(phân\s*khu|bảng\s*hàng|đơn\s*lập|song\s*lập|liền\s*kề|biệt\s*thự|shophouse|tổng\s*cộng|căn\s*hộ|ghi\s*chú|demo|test)$', raw_unit, re.IGNORECASE):
+            continue
+        if re.search(r'(xây\s*sau|thô.*thang|bàn\s*giao|chính\s*sách|csbh|tiền\s*thuê)', unit_code, re.IGNORECASE):
             continue
 
         resolved_zone = infer_grounded_zone(unit_code, project_key, raw_zone, sub_tab)
@@ -458,8 +558,9 @@ def parse_agency_grid_data(
             'chuyển bán', 'chuyen ban', 'đã gd', 'da gd', 'gd thành công', 'giao dịch thành công'
         ]
         is_sold_in_status = any(kw in raw_status for kw in sold_status_keywords) or bool(re.search(r'\b(đã bán|da ban|đã cọc|da coc|hết|het)\b', raw_status))
-        # Trong cột ghi chú: nhận diện khi có cụm từ cọc / ráp / bán / khóa căn rõ ràng (TUYỆT ĐỐI KHÔNG bắt 'hđmb' vì là loại hình hợp đồng)
-        explicit_note_sold = bool(re.search(r'(đã bán|da ban|\bsold\b|cọc|coc|hết hàng|het hang|thu hồi|thu hoi|khóa căn|khoa can|đóng căn|dong can|ráp|rap|ttđc|ttdc)', raw_note))
+        # Trong cột ghi chú: nhận diện khi có cụm từ cọc / ráp / bán / khóa căn rõ ràng
+        # (TUYỆT ĐỐI KHÔNG bắt 'hđmb', 'ttđc', 'vbcn' vì là hình thức hợp đồng/pháp lý; KHÔNG bắt 'cọc' đơn lẻ vì dính 'giải ngân trên cọc')
+        explicit_note_sold = bool(re.search(r'\b(đã bán|da ban|\bsold\b|đã cọc|da coc|vào cọc|vao coc|nhận cọc|nhan coc|khóa cọc|khoa coc|cọc thiện chí|coc thien chi|hết hàng|het hang|thu hồi|thu hoi|khóa căn|khoa can|đóng căn|dong can|ráp căn|rap can|đã ráp|da rap|ngưng bán|ngung ban|chuyển bán|chuyen ban|đã gd|da gd|gd thành công|giao dịch thành công)\b', raw_note))
         
         is_sold_signal = bool(
             in_sold_section or
@@ -540,14 +641,12 @@ def parse_agency_grid_data(
         note = get_val(row, cm['note']).strip()
 
         # Media links
-        chican_link = get_url(row, cm['chi_can'])
-        ptg_link = get_url(row, cm['ptg'])
-        unit_link = get_url(row, cm['unit_code'])
-
-        chican_urls = [chican_link] if chican_link.startswith('http') else []
-        ptg_urls = [ptg_link] if ptg_link.startswith('http') else []
-        if unit_link.startswith('http'):
-            chican_urls.append(unit_link)
+        chican_urls = get_urls(row, cm['chi_can'])
+        ptg_urls = get_urls(row, cm['ptg'])
+        unit_urls = get_urls(row, cm['unit_code'])
+        for u in unit_urls:
+            if u not in chican_urls:
+                chican_urls.append(u)
 
         media = resolve_unit_media_links(chican_urls, ptg_urls)
 
@@ -564,6 +663,18 @@ def parse_agency_grid_data(
         if is_low_rise:
             raw_tcbg = get_val(row, cm['tcbg']).strip()
             raw_type = get_val(row, cm['unit_type']).strip()
+            raw_desc = get_val(row, cm['desc']).strip()
+
+            # Chặn VBCN / HĐMB gán vào loại hình
+            if raw_type.upper() in ['VBCN', 'HĐMB', 'HDMB', 'TTĐC', 'TTDC', 'VBTT', 'VBPN']:
+                if any(kw in raw_desc.upper() for kw in ['LIỀN KỀ', 'SHOPHOUSE', 'SONG LẬP', 'ĐƠN LẬP', 'TỨ LẬP', 'LK', 'SH', 'SL', 'ĐL']):
+                    raw_type = raw_desc
+                else:
+                    raw_type = ""
+
+            # Tráo đổi nếu bị đảo ngược TCBG và Loại hình
+            if any(kw in raw_type.upper() for kw in ['THÔ', 'GIÃN XÂY', 'HOÀN THIỆN', 'KPTM', 'XÂY SAU']) and any(kw in raw_tcbg.upper() for kw in ['LIỀN KỀ', 'SHOPHOUSE', 'SONG LẬP', 'ĐƠN LẬP', 'TỨ LẬP', 'LK', 'SH', 'SL', 'ĐL']):
+                raw_type, raw_tcbg = raw_tcbg, raw_type
 
             # Kiểm tra trôi cột do khuyết cột TCBG ở các bảng phụ (như ELITE CAPITAL):
             # Khi cột TCBG chứa loại hình (LK, SL, ĐL, BT, SH) và cột Loại căn lại chứa số diện tích
@@ -635,6 +746,17 @@ def parse_agency_grid_data(
         else:
             raw_type = get_val(row, cm['unit_type']).strip()
             unit_type = normalize_high_rise_type(raw_type)
+            raw_desc = get_val(row, cm['desc']).strip()
+            raw_tcbg = get_val(row, cm['tcbg']).strip()
+            bedrooms = get_val(row, cm['bedrooms']).strip()
+            if not unit_type and bedrooms:
+                unit_type = normalize_high_rise_type(bedrooms)
+            if not unit_type and raw_desc:
+                if re.search(r'\b(PN|BR|PHÒNG\s*NGỦ|STUDIO|DUPLEX|PENTHOUSE|TRIPLEX|SHOP)\b', raw_desc, re.IGNORECASE):
+                    unit_type = normalize_high_rise_type(raw_desc)
+            if not unit_type and raw_tcbg:
+                if re.search(r'\b(PN|BR|PHÒNG\s*NGỦ|STUDIO|DUPLEX|PENTHOUSE|TRIPLEX|SHOP)\b', raw_tcbg, re.IGNORECASE):
+                    unit_type = normalize_high_rise_type(raw_tcbg)
             net_area = sanitize_single_area(get_val(row, cm['net_area']), is_low_rise=False)
             gross_area = sanitize_single_area(get_val(row, cm['gross_area']), is_low_rise=False)
             bedrooms = get_val(row, cm['bedrooms']).strip()
@@ -753,9 +875,11 @@ def fetch_agency_via_gviz_csv(
         grid_row = []
         for cell_val in r:
             val_clean = unicodedata.normalize('NFC', str(cell_val or '')).strip()
+            urls = [m.strip().rstrip('.,;') for m in re.findall(r'https?://[^\s"\'<>)\],;]+', val_clean)]
             grid_row.append({
                 'formattedValue': val_clean,
-                'hyperlink': val_clean if val_clean.startswith('http') else '',
+                'hyperlink': urls[0] if urls else '',
+                'urls': urls,
                 'color_type': 'neutral'
             })
         grid_rows.append(grid_row)
@@ -886,6 +1010,13 @@ def fetch_agency_from_drive_xlsx(
                 for c in r:
                     val = str(c.value or '') if c.value is not None else ''
                     link = c.hyperlink.target if getattr(c, 'hyperlink', None) else ''
+                    urls = [link] if (link and str(link).startswith('http')) else []
+                    for m in re.findall(r'https?://[^\s"\'<>)\],;]+', val):
+                        clean_m = m.strip().rstrip('.,;')
+                        if clean_m and clean_m not in urls:
+                            urls.append(clean_m)
+                    if not link and urls:
+                        link = urls[0]
                     color_type = get_openpyxl_cell_color(c)
                     font = getattr(c, 'font', None)
                     is_strike = bool(getattr(font, 'strike', False))
@@ -898,6 +1029,7 @@ def fetch_agency_from_drive_xlsx(
                     row_cells.append({
                         'formattedValue': val,
                         'hyperlink': link,
+                        'urls': urls,
                         'color_type': color_type,
                         'is_strikethrough': is_strike,
                         'is_fg_red': is_fg_red
@@ -1048,13 +1180,13 @@ def fetch_agency_from_google_sheet(
                 chosen_sheet_title = sheets[0]['properties']['title']
                 chosen_sheet_gid = sheets[0]['properties']['sheetId']
 
-        # Đọc dữ liệu ma trận ô (values + hyperlinks + backgroundColor) và rowMetadata
+        # Đọc dữ liệu ma trận ô (values + hyperlinks + chipRuns + textFormatRuns + userEnteredValue + backgroundColor) và rowMetadata
         try:
             grid_resp = _execute_with_retry(
                 service.spreadsheets().get(
                     spreadsheetId=file_id,
                     ranges=[f"'{chosen_sheet_title}'!A1:AZ2000"],
-                    fields="sheets(data(rowData(values(formattedValue,hyperlink,effectiveFormat.backgroundColor,userEnteredFormat.backgroundColor,effectiveFormat.textFormat,userEnteredFormat.textFormat)),rowMetadata(hiddenByUser,hiddenByFilter)),properties(title,sheetId))"
+                    fields="sheets(data(rowData(values(formattedValue,hyperlink,chipRuns,textFormatRuns,userEnteredValue,effectiveFormat.backgroundColor,userEnteredFormat.backgroundColor,effectiveFormat.textFormat,userEnteredFormat.textFormat)),rowMetadata(hiddenByUser,hiddenByFilter)),properties(title,sheetId))"
                 )
             )
 
@@ -1075,7 +1207,8 @@ def fetch_agency_from_google_sheet(
                 parsed_cells = []
                 for c in cells:
                     val = c.get('formattedValue', '')
-                    link = c.get('hyperlink', '')
+                    urls = extract_urls_from_cell_data(c)
+                    link = urls[0] if urls else (c.get('hyperlink', '') or '')
                     bg = c.get('effectiveFormat', {}).get('backgroundColor') or c.get('userEnteredFormat', {}).get('backgroundColor')
                     if not bg:
                         color_type = 'neutral'
@@ -1096,6 +1229,7 @@ def fetch_agency_from_google_sheet(
                     parsed_cells.append({
                         'formattedValue': val,
                         'hyperlink': link,
+                        'urls': urls,
                         'color_type': color_type,
                         'is_strikethrough': is_strike,
                         'is_fg_red': is_fg_red
@@ -1120,13 +1254,14 @@ def fetch_agency_from_google_sheet(
                 color_lookup = {}
                 strike_lookup = {}
                 fg_red_lookup = {}
+                urls_lookup = {}
                 row_hidden_flags = [False] * actual_num_rows
                 try:
                     format_resp = _execute_with_retry(
                         service.spreadsheets().get(
                             spreadsheetId=file_id,
                             ranges=[f"'{chosen_sheet_title}'!A1:AZ{max_fetch_row}"],
-                            fields="sheets(data(rowData(values(userEnteredFormat.backgroundColor,userEnteredFormat.textFormat)),rowMetadata(hiddenByUser,hiddenByFilter)),properties(sheetId,title))"
+                            fields="sheets(data(rowData(values(hyperlink,chipRuns,textFormatRuns,userEnteredValue,userEnteredFormat.backgroundColor,userEnteredFormat.textFormat)),rowMetadata(hiddenByUser,hiddenByFilter)),properties(sheetId,title))"
                         )
                     )
                     f_sheet = format_resp.get('sheets', [{}])[0]
@@ -1140,6 +1275,9 @@ def fetch_agency_from_google_sheet(
 
                     for r_idx, r_d in enumerate(f_row_data):
                         for c_idx, c_d in enumerate(r_d.get('values', [])):
+                            u_list = extract_urls_from_cell_data(c_d)
+                            if u_list:
+                                urls_lookup[(r_idx, c_idx)] = u_list
                             bg = c_d.get('userEnteredFormat', {}).get('backgroundColor')
                             if bg:
                                 color_lookup[(r_idx, c_idx)] = classify_rgb_color(
@@ -1165,9 +1303,14 @@ def fetch_agency_from_google_sheet(
                         c_type = color_lookup.get((r_idx, c_idx), 'neutral')
                         is_strike = strike_lookup.get((r_idx, c_idx), False)
                         is_fg_red = fg_red_lookup.get((r_idx, c_idx), False)
+                        urls = urls_lookup.get((r_idx, c_idx), [])
+                        if not urls:
+                            urls = extract_urls_from_cell_data({'formattedValue': val_clean})
+                        link = urls[0] if urls else (val_clean if val_clean.startswith('http') else '')
                         cells.append({
                             'formattedValue': val_clean,
-                            'hyperlink': val_clean if val_clean.startswith('http') else '',
+                            'hyperlink': link,
+                            'urls': urls,
                             'color_type': c_type,
                             'is_strikethrough': is_strike,
                             'is_fg_red': is_fg_red

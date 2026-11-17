@@ -10,6 +10,7 @@ __pycache__/
 credentials/
 .env
 .env.*
+!.env.example
 service_account.json
 credentials.json
 gcp_sa_key.json

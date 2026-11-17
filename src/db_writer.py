@@ -22,7 +22,9 @@ from src.normalizer import (
     sanitize_unit_code,
     normalize_direction,
     normalize_low_rise_type,
+    infer_grounded_low_rise_type,
     normalize_high_rise_type,
+    infer_parkland_high_rise_type,
     sanitize_and_cross_validate_prices
 )
 from src.merger import extract_clean_agency_name
@@ -207,7 +209,12 @@ def _clean_str(val: Any, max_len: Optional[int] = None) -> Optional[str]:
     return s
 
 
-def _parse_decimal(val: Any, is_price: bool = False) -> Optional[Decimal]:
+def _parse_decimal(
+    val: Any,
+    is_price: bool = False,
+    is_area: bool = False,
+    is_low_rise: bool = True
+) -> Optional[Decimal]:
     if val is None or val == "":
         return None
     if isinstance(val, Decimal):
@@ -247,6 +254,24 @@ def _parse_decimal(val: Any, is_price: bool = False) -> Optional[Decimal]:
         return None
     if is_price and d > Decimal("1000000000000"):
         d = d / Decimal("1000")
+
+    if is_area and d > 0:
+        num = float(d)
+        if not is_low_rise:
+            if num >= 10_000_000:
+                d = Decimal(str(round(num / 1_000_000, 2)))
+            elif 100_000 <= num < 10_000_000:
+                d = Decimal(str(round(num / 10_000, 2)))
+            elif 1000 <= num < 10_000:
+                d = Decimal(str(round(num / 100, 2))) if (num % 10 == 0 and num > 3000) else Decimal(str(round(num / 10, 2)))
+            elif 500 <= num < 1000:
+                d = Decimal(str(round(num / 10, 2)))
+        else:
+            if num >= 10_000:
+                d = Decimal(str(round(num / 100, 2)))
+            elif 2500 < num < 10_000:
+                d = Decimal(str(round(num / 10, 2)))
+
     return d
 
 
@@ -463,9 +488,23 @@ def map_merged_row_to_db_record(
     if is_low_rise:
         subdivision_name = _clean_str(_get_col(row, 1), 255)
         delivery_standards = _clean_str(_get_col(row, 3))
-        apartment_type_name = normalize_low_rise_type(_clean_str(_get_col(row, 4), 255), delivery_standards)
-        land_area = _parse_decimal(_get_col(row, 5), is_price=False)
-        construction_area = _parse_decimal(_get_col(row, 6), is_price=False)
+        raw_type_col = _clean_str(_get_col(row, 4), 255)
+        raw_code_col = raw_code
+        raw_type_upper = (raw_type_col or "").upper()
+        tcbg_upper = (delivery_standards or "").upper()
+        if any(kw in raw_type_upper for kw in ['THÔ', 'GIÃN XÂY', 'HOÀN THIỆN', 'KPTM']) and any(kw in tcbg_upper for kw in ['LIỀN KỀ', 'SHOPHOUSE', 'SONG LẬP', 'ĐƠN LẬP', 'TỨ LẬP', 'LK', 'SH', 'SL', 'ĐL']):
+            raw_type_col, delivery_standards = delivery_standards, raw_type_col
+            raw_type_upper = (raw_type_col or "").upper()
+            tcbg_upper = (delivery_standards or "").upper()
+        if raw_type_upper in ['VBCN', 'HĐMB', 'HDMB', 'TTĐC', 'VBTT', 'VBPN']:
+            raw_type_col = ''
+        if not raw_type_col:
+            raw_desc_val = _clean_str(_get_col(row, 27))
+            if raw_desc_val and any(kw in raw_desc_val.upper() for kw in ['LIỀN KỀ', 'SHOPHOUSE', 'SONG LẬP', 'ĐƠN LẬP', 'TỨ LẬP', 'LK', 'SH', 'SL', 'ĐL', 'BT']):
+                raw_type_col = raw_desc_val
+        apartment_type_name = infer_grounded_low_rise_type(raw_code_col, raw_type_col or '', delivery_standards or '')
+        land_area = _parse_decimal(_get_col(row, 5), is_price=False, is_area=True, is_low_rise=True)
+        construction_area = _parse_decimal(_get_col(row, 6), is_price=False, is_area=True, is_low_rise=True)
         price_before_vat = _parse_decimal(_get_col(row, 7), is_price=True)
         vat_amount = _parse_decimal(_get_col(row, 8), is_price=True)
         maintenance_fee_amount = _parse_decimal(_get_col(row, 9), is_price=True)
@@ -488,6 +527,8 @@ def map_merged_row_to_db_record(
         gift = _clean_str(_get_col(row, 26))
         x_sale_description = _clean_str(_get_col(row, 27))
         policy_date, policy_code = _parse_policy(_get_col(row, 28))
+        if not policy_code and (_clean_str(_get_col(row, 4), 255) or '').upper() in ['VBCN', 'HĐMB', 'HDMB', 'TTĐC', 'VBTT', 'VBPN']:
+            policy_code = _clean_str(_get_col(row, 4), 255).upper()
         supporting_banks = _clean_str(_get_col(row, 29), 1024)
         notes_real_estate = _clean_str(_get_col(row, 30))
         state_line, state_line_name = _map_state_line(_get_col(row, 31))
@@ -519,8 +560,8 @@ def map_merged_row_to_db_record(
         number_of_floor = _clean_str(_get_col(row, 6), 32)
         floor_sort_order = _parse_floor_sort_order(number_of_floor)
         apartment_axis_code = _clean_str(_get_col(row, 7), 255)
-        carpet_area = _parse_decimal(_get_col(row, 8), is_price=False)
-        built_up_area = _parse_decimal(_get_col(row, 9), is_price=False)
+        carpet_area = _parse_decimal(_get_col(row, 8), is_price=False, is_area=True, is_low_rise=False)
+        built_up_area = _parse_decimal(_get_col(row, 9), is_price=False, is_area=True, is_low_rise=False)
         number_of_room = _clean_str(_get_col(row, 10), 32)
         number_of_wc = _clean_str(_get_col(row, 11), 32)
         maintenance_fee_amount = _parse_decimal(_get_col(row, 12), is_price=True)
@@ -533,6 +574,16 @@ def map_merged_row_to_db_record(
         delivery_standards = _clean_str(_get_col(row, 19))
         gift = _clean_str(_get_col(row, 20))
         x_sale_description = _clean_str(_get_col(row, 21))
+        if not apartment_type_name and number_of_room:
+            apartment_type_name = normalize_high_rise_type(number_of_room)
+        if not apartment_type_name and x_sale_description:
+            if re.search(r'\b(PN|BR|PHÒNG\s*NGỦ|STUDIO|DUPLEX|PENTHOUSE|TRIPLEX|SHOP)\b', x_sale_description, re.IGNORECASE):
+                apartment_type_name = normalize_high_rise_type(x_sale_description)
+        if not apartment_type_name and delivery_standards:
+            if re.search(r'\b(PN|BR|PHÒNG\s*NGỦ|STUDIO|DUPLEX|PENTHOUSE|TRIPLEX|SHOP)\b', delivery_standards, re.IGNORECASE):
+                apartment_type_name = normalize_high_rise_type(delivery_standards)
+        if not apartment_type_name and project_id == 'the-parkland-imperia-ocean-city':
+            apartment_type_name = infer_parkland_high_rise_type(building_name, apartment_axis_code, carpet_area)
         policy_date, policy_code = _parse_policy(_get_col(row, 22))
         supporting_banks = _clean_str(_get_col(row, 23), 1024)
         x_sale_link_summary, product_images = _extract_urls(_get_col(row, 24))
@@ -563,12 +614,18 @@ def map_merged_row_to_db_record(
     if carpet_area and built_up_area and carpet_area > built_up_area:
         carpet_area, built_up_area = built_up_area, carpet_area
 
+    # Đối soát nếu tổng giá bằng giá chưa VAT nhưng có VAT
+    if total_price and price_before_vat and total_price == price_before_vat and vat_amount and vat_amount > 0:
+        total_price = price_before_vat + vat_amount + (maintenance_fee_amount or 0)
+
     # Pricing cross-validation (bảo tồn giá tổng theo chỉ đạo người dùng)
     total_price, price_before_vat, don_gia_m2 = sanitize_and_cross_validate_prices(
         total_price=total_price,
         price_before_vat=price_before_vat,
         don_gia_m2=price_per_meter
     )
+    if total_price and price_before_vat and price_before_vat > total_price * Decimal("1.01"):
+        price_before_vat = None
     if don_gia_m2:
         price_per_meter = don_gia_m2
     if not total_price:

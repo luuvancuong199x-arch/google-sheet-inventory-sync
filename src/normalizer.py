@@ -366,6 +366,22 @@ def sanitize_single_area(raw_val: Any, is_low_rise: bool = True, is_construction
         dt = datetime(1899, 12, 30) + timedelta(days=num)
         return round(float(f"{dt.day}.{dt.month}"), 2)
 
+    # Khắc phục lỗi đơn vị / scale bất thường (CAD export mm2, dm2, thiếu dấu phẩy, v.v.)
+    if not is_low_rise:
+        if num >= 10_000_000:
+            num = num / 1_000_000
+        elif 100_000 <= num < 10_000_000:
+            num = num / 10_000
+        elif 1000 <= num < 10_000:
+            num = (num / 100) if (num % 10 == 0 and num > 3000) else (num / 10)
+        elif 500 <= num < 1000:
+            num = num / 10
+    else:
+        if num >= 10_000:
+            num = num / 100
+        elif 2500 < num < 10_000:
+            num = num / 10
+
     return round(num, 2)
 
 def normalize_price_to_vnd(raw_val: Any, unit_hint: str = 'TOTAL') -> Any:
@@ -671,53 +687,135 @@ def normalize_csbh_date(raw_csbh: Any, default_year: int = DEFAULT_POLICY_YEAR) 
     return {"csbh_date": "", "extra_gift": "", "extra_bank": "", "extra_note": s}
 
 def normalize_low_rise_type(raw_val: Any, raw_tcbg: Any = '') -> str:
-    """Chuẩn hóa loại hình thấp tầng: LK, SH, BTSL, BTĐL, BTTL, TMDV."""
+    """
+    Chuẩn hóa loại hình thấp tầng theo Danh mục Đóng (Closed Canonical Taxonomy):
+    Liền kề, Liền kề góc, Liền kề xẻ khe, Liền kề shop,
+    Biệt thự Song lập, Biệt thự Song lập góc,
+    Biệt thự Đơn lập, Biệt thự Đơn lập góc,
+    Biệt thự Tứ lập, Biệt thự,
+    Shophouse, Shophouse góc, Shophouse xẻ khe, Shophouse chân đế,
+    TMDV.
+    Mọi giá trị rác, phân khu, vị trí đơn lẻ (Thường, Góc, Xẻ khe), số diện tích đều trả về ''.
+    """
     s = str(raw_val or '').strip().upper()
     tcbg = str(raw_tcbg or '').strip().upper()
-    if not s:
+    if not s or s in ['NONE', 'NULL', 'N/A', '-', 'VBCN', 'HĐMB', 'HDMB', 'TTĐC', 'VBTT', 'VBPN', '#N/A', 'THẤP TẦNG']:
         return ''
+    if any(kw in s for kw in ['THÔ', 'THO', 'GIÃN XÂY', 'HOÀN THIỆN', 'KPTM', 'XÂY SAU']):
+        return ''
+
+    # Chặn số diện tích trôi cột
+    if re.match(r'^\d+([.,]\d+)?$', s):
+        return ''
+
+    # Chặn tên phân khu
+    if s in ['CLARKE QUAY', 'P. THỦY NGUYÊN']:
+        return ''
+
+    # Chặn từ khóa vị trí đứng đơn lẻ (để infer_grounded_low_rise_type kết hợp với mã căn)
+    if s in ['THƯỜNG', 'THUONG', 'GÓC', 'GOC', 'XẺ KHE', 'XE KHE', 'ÁP GÓC', 'AP GOC', 'GÓC ĐẦU HỒI', 'GOC DAU HOI', 'GÓC 3 MẶT HỒ, CẠNH GW VÀ CHUNG CƯ MIK']:
+        return ''
+
+    # Chặn phòng ngủ cao tầng lọt vào thấp tầng
+    if re.search(r'^\d+\s*PN|\bSTUDIO\b', s):
+        return ''
+
     if ('SONG LẬP' in tcbg or 'SONG LAP' in tcbg) and any(kw in s for kw in ['LIỀN KỀ', 'LIEN KE', 'LIÊN KẾ', 'LK']):
-        return 'BTSL'
+        return 'Biệt thự Song lập'
     if any(kw in s for kw in ['SONG LẬP', 'SONG LAP', 'BTSL', 'SL']):
-        return 'BTSL'
+        if 'GÓC' in s or 'GOC' in s or 'ÁP GÓC' in s:
+            return 'Biệt thự Song lập góc'
+        return 'Biệt thự Song lập'
     if any(kw in s for kw in ['ĐƠN LẬP', 'DON LAP', 'BTĐL', 'BTDL', 'ĐL', 'DL']):
-        return 'BTĐL'
+        if 'GÓC' in s or 'GOC' in s or 'ÁP GÓC' in s:
+            return 'Biệt thự Đơn lập góc'
+        return 'Biệt thự Đơn lập'
     if any(kw in s for kw in ['TỨ LẬP', 'TU LAP', 'BTTL', 'TL']):
-        return 'BTTL'
+        return 'Biệt thự Tứ lập'
     if any(kw in s for kw in ['SHOPHOUSE', 'NHÀ PHỐ', 'NHA PHO', 'SH', 'SHOP']):
-        return 'SH'
+        if 'CHÂN ĐẾ' in s or 'CHAN DE' in s or 'TẦNG 01' in s:
+            return 'Shophouse chân đế'
+        if 'XẺ KHE' in s or 'XE KHE' in s or 'XK' in s:
+            return 'Shophouse xẻ khe'
+        if 'GÓC' in s or 'GOC' in s or 'ÁP GÓC' in s:
+            return 'Shophouse góc'
+        return 'Shophouse'
     if any(kw in s for kw in ['TMDV', 'THƯƠNG MẠI', 'THUONG MAI']):
         return 'TMDV'
     if any(kw in s for kw in ['LIỀN KỀ', 'LIEN KE', 'LIÊN KẾ', 'LK']):
-        return 'LK'
+        if 'SHOP' in s:
+            return 'Liền kề shop'
+        if 'XẺ KHE' in s or 'XE KHE' in s:
+            return 'Liền kề xẻ khe'
+        if 'GÓC' in s or 'GOC' in s or 'ÁP GÓC' in s:
+            return 'Liền kề góc'
+        return 'Liền kề'
     if any(kw in s for kw in ['BIỆT THỰ', 'BIET THU', 'BT']):
-        return 'BT'
-    return s
+        return 'Biệt thự'
+    return ''
 
 def normalize_high_rise_type(raw_val: Any) -> str:
-    """Chuẩn hóa loại hình cao tầng: STUDIO, 1PN, 1PN+, 2PN, 2PN+, 3PN, 3PN+, 4PN, DUPLEX, PENTHOUSE..."""
+    """
+    Chuẩn hóa loại hình cao tầng theo Danh mục Đóng (Closed Canonical Taxonomy):
+    STUDIO, 1PN, 1PN+, 2PN, 2PN+, 3PN, 3PN+, 4PN, 5PN, DUPLEX, PENTHOUSE, TRIPLEX, Shophouse chân đế.
+    Mọi giá trị view, hướng, tên tòa, số diện tích trôi cột hoặc không thuộc taxonomy đều trả về ''.
+    """
     s = str(raw_val or '').strip().upper()
     s = re.sub(r'\s+', ' ', s)
-    if not s or s in ['NONE', 'NULL', 'N/A']:
+    if not s or s in ['NONE', 'NULL', 'N/A', '-', '#N/A']:
         return ''
-    if any(kw in s for kw in ['STUDIO', 'STU']):
-        return 'STUDIO'
+
+    # 1. Chặn các chuỗi View, cảnh quan, tiện ích, hướng, phân khu, vị trí
+    reject_patterns = [
+        r'\bVIEW\b', r'\bNỘI\s*KHU\b', r'\bNGOẠI\s*KHU\b', r'\bBỂ\s*BƠI\b',
+        r'\bSÔNG\b', r'\bHỒ\b', r'\bCÔNG\s*VIÊN\b', r'\bCV\b', r'\bTIỆN\s*ÍCH\b',
+        r'\bTRƯỜNG\s*HỌC\b', r'\bĐƯỜNG\b', r'\bQUẢNG\s*TRƯỜNG\b', r'\bĐẢO\s*NGỌC\s*TRAI\b',
+        r'\bVINCOM\b', r'\bKĐAS\b', r'\bOCP\b', r'\bNHẬT\s*TÂN\b', r'\bTHẤP\s*TẦNG\b',
+        r'\bBEVERLY\b', r'\bOPUS\s*ONE\b', r'\bSOLARI\b', r'\bORIGAMI\b', r'\bGLORY\s*HEIGHTS\b',
+        r'\bCĂN\s*GÓC\b', r'\bTRỰC\s*DIỆN\b'
+    ]
+    if any(re.search(p, s) for p in reject_patterns):
+        return ''
+
+    # 2. Penthouse, Duplex, Triplex
     if any(kw in s for kw in ['PENTHOUSE', 'PEN']):
         return 'PENTHOUSE'
     if any(kw in s for kw in ['DUPLEX', 'DUP']):
         return 'DUPLEX'
     if any(kw in s for kw in ['TRIPLEX', 'TRI']):
         return 'TRIPLEX'
-    m_plus = re.search(r'([1-4])\s*(?:PN|BR|PHÒNG\s*NGỦ|PHONG\s*NGU|P)\s*(?:\+|\+\s*1|\bCỘNG\b)', s)
+
+    # 3. Studio
+    if re.search(r'\b(STUDIO|STU)\b', s) or s == 'ST':
+        return 'STUDIO'
+
+    # 4. Shophouse chân đế
+    if any(kw in s for kw in ['SHOP', 'SHOPHOUSE', 'CHÂN ĐẾ', 'TẦNG 01']):
+        return 'Shophouse chân đế'
+
+    # 5. Pattern phòng ngủ kèm dấu + (1PN+, 2PN+, 3PN+...)
+    m_plus = re.search(r'([1-5])\s*(?:PN|BR|PHÒNG\s*NGỦ|PHONG\s*NGU|P|BED|BRL)\s*(?:\+|\+\s*1|\bCỘNG\b)', s)
     if m_plus:
         return f"{m_plus.group(1)}PN+"
-    m_std = re.search(r'([1-4])\s*(?:PN|BR|PHÒNG\s*NGỦ|PHONG\s*NGU|P)\b', s)
+
+    # 6. Pattern phòng ngủ chuẩn (1PN, 2PN, 3PN, 4PN, 5PN, 2N2VS, 3BRL...)
+    m_std = re.search(r'([1-5])\s*(?:PN|BR|PHÒNG\s*NGỦ|PHONG\s*NGU|P|BED|BRL|N(?:\d+VS)?)\b', s)
     if m_std:
         return f"{m_std.group(1)}PN"
+
+    # 7. Nhận diện số nguyên thuần (từ cột number_of_room: 1, 2, 3, 4, 5)
+    # Nếu là số thập phân hoặc số >= 10 (ví dụ 52, 97.8), đây là diện tích trôi cột -> loại bỏ!
+    if re.match(r'^\d+([.,]\d+)?$', s):
+        if s in ('1', '2', '3', '4', '5'):
+            return f"{s}PN"
+        return ''
+
+    # 8. Clean match cuối cùng cho định dạng gọn
     s_clean = s.replace(' ', '').replace('BR', 'PN')
-    if re.match(r'^[1-4]PN\+?$', s_clean):
+    if re.match(r'^[1-5]PN\+?$', s_clean):
         return s_clean
-    return s
+
+    return ''
 
 def sanitize_and_cross_validate_prices(
     total_price: Any,
@@ -753,6 +851,9 @@ def sanitize_and_cross_validate_prices(
                 if dg is None or dg == '':
                     dg = tot
                 tot = None
+            elif prev_num > tot_num * 1.01:
+                # Giá trước VAT lớn hơn tổng giá (do gán nhầm giá gốc niêm yết CĐT với giá TTS đã chiết khấu)
+                prev = None
         except (ValueError, TypeError):
             pass
 
@@ -857,6 +958,46 @@ def infer_grounded_zone(unit_code: str, project_key: str, existing_zone: str = '
 
     return ''
 
+PARKLAND_AXIS_MAP = {
+    'M1': {'01': '2PN+', '02': 'STUDIO', '03': '1PN+', '05': '2PN', '05A': '2PN', '06': '1PN+', '08': '2PN+', '08A': '2PN', '09': '3PN', '10': '2PN', '11': '2PN', '12': 'STUDIO', '12A': '1PN+', '15': '1PN+', '15A': '1PN+', '16': '1PN+', '17': '2PN', '18': '2PN', '19': 'STUDIO', '20': '3PN'},
+    'M3': {'01': '2PN+', '02': 'STUDIO', '03': '1PN+', '05': '2PN', '05A': '2PN', '06': '1PN+', '08': '2PN+', '08A': '2PN', '09': '3PN', '10': '2PN', '11': '2PN', '12': 'STUDIO', '12A': '1PN+', '15': '1PN+', '15A': '1PN+', '16': '1PN+', '17': '2PN', '18': '2PN', '19': 'STUDIO', '20': '3PN'},
+    'P1': {'01': '3PN', '02': '1PN+', '03': '1PN+', '05': '2PN', '05A': '2PN', '06': '3PN', '08': '1PN+', '08A': '2PN+', '09': '2PN', '10': '2PN', '11': '1PN+', '12': '1PN+', '12A': '2PN', '15': 'STUDIO', '15A': '2PN', '16': '2PN+', '20': '3PN'},
+    'P2': {'01': '3PN', '02': '1PN+', '03': '1PN+', '05': '2PN', '05A': '2PN', '06': '3PN', '08': '1PN+', '08A': '2PN+', '09': '2PN', '10': '2PN', '11': '1PN+', '12': '1PN+', '12A': '2PN', '15': 'STUDIO', '15A': '2PN', '16': '2PN+'},
+    'P3': {'01': '3PN', '02': '1PN+', '03': '1PN+', '05': '2PN', '05A': '2PN', '06': '3PN', '08': '1PN+', '08A': '2PN+', '09': '2PN', '10': '2PN', '11': '1PN+', '12': '1PN+', '12A': '2PN', '15': 'STUDIO', '15A': '2PN', '16': '2PN+'},
+    'P5': {'01': '3PN', '02': '1PN+', '03': '1PN+', '05': '2PN', '05A': '2PN', '06': '3PN', '08': '1PN+', '08A': '2PN+', '09': '2PN', '10': '2PN', '11': '1PN+', '12': '1PN+', '12A': '2PN', '15': 'STUDIO', '15A': '2PN', '16': '2PN+'},
+    'P6': {'01': '2PN+', '02': '2PN', '03': '1PN+', '05': '1PN+', '05A': '1PN+', '06': 'STUDIO', '08': '2PN', '08A': 'STUDIO', '09': '3PN', '10': '3PN', '11': '2PN', '12': '2PN', '12A': '2PN', '15': '1PN+', '15A': '2PN', '16': '2PN+', '17': '1PN+', '18': 'STUDIO', '19': '1PN+', '20': '3PN', '21': '2PN+', '22': '2PN'},
+    'P8': {'01': '2PN+', '02': '2PN', '03': '1PN+', '05': '1PN+', '05A': '1PN+', '06': 'STUDIO', '08': '2PN', '08A': 'STUDIO', '09': '3PN', '10': '3PN', '11': '2PN', '12': '2PN', '12A': '2PN', '15': '1PN+', '15A': '2PN', '16': '2PN+', '17': '1PN+', '18': 'STUDIO', '19': '1PN+', '20': '3PN', '21': '2PN+', '22': '2PN'},
+}
+
+def infer_parkland_high_rise_type(building: str, axis: str, carpet_area: Any = None) -> str:
+    """Suy luận chính xác loại hình căn hộ dự án Parkland dựa trên tòa và mã trục căn hoặc diện tích."""
+    b = str(building or '').strip().upper()
+    b = re.sub(r'^(?:TÒA|TOÀ|BLOCK)\s*', '', b).strip().rstrip('.')
+    a = to_axis_code(axis)
+    if b in PARKLAND_AXIS_MAP:
+        if a in PARKLAND_AXIS_MAP[b]:
+            return PARKLAND_AXIS_MAP[b][a]
+        a_alt = a.lstrip('0')
+        if a_alt in PARKLAND_AXIS_MAP[b]:
+            return PARKLAND_AXIS_MAP[b][a_alt]
+
+    try:
+        if carpet_area is not None:
+            area = float(carpet_area)
+            if area > 0:
+                if area < 35.0:
+                    return 'STUDIO'
+                if area < 52.0:
+                    return '1PN+'
+                if area < 65.0:
+                    return '2PN'
+                if area < 75.0:
+                    return '2PN+'
+                return '3PN'
+    except Exception:
+        pass
+    return ''
+
 def infer_grounded_low_rise_type(unit_code: str, raw_type: str = '', raw_tcbg: str = '') -> str:
     """Suy luận loại hình thấp tầng dựa trên dữ liệu có sẵn từ cột nguồn hoặc tiền tố mã căn."""
     norm = normalize_low_rise_type(raw_type, raw_tcbg)
@@ -865,19 +1006,38 @@ def infer_grounded_low_rise_type(unit_code: str, raw_type: str = '', raw_tcbg: s
     if not unit_code:
         return ''
     u = unit_code.strip().upper()
-    if re.match(r'^(LK|LIENKE|LIỀNKỀ)', u):
-        return 'LK'
-    if re.match(r'^(SH|SHOP|SHOPHOUSE)', u):
-        return 'SH'
-    if re.match(r'^(BTĐL|BTDL)', u):
-        return 'BTĐL'
-    if re.match(r'^(BTSL)', u):
-        return 'BTSL'
-    if re.match(r'^(BT|BIETTHU|BIỆTTHỰ)', u):
-        return 'BT'
-    if re.match(r'^(TMDV)', u):
-        return 'TMDV'
-    return ''
+    r = str(raw_type or '').strip().upper()
+
+    base = ''
+    if re.match(r'^(TL\d*[-_.]|TL\d+)', u):
+        base = 'Shophouse'
+    elif re.match(r'^(AS\d*[-_.]|LK|LIENKE|LIỀNKỀ|TV|VN|VTĐ|VX)', u):
+        base = 'Liền kề'
+    elif '.SP' in u or re.search(r'\.SP\d*[-_.]', u) or re.match(r'^(SH|SHOP|SHOPHOUSE|ĐLBM|DLBM|ĐLSH|DLSH|PB|KĐ|KD)', u):
+        base = 'Shophouse'
+    elif re.match(r'^(BTSL|SL|NT)', u):
+        base = 'Biệt thự Song lập'
+    elif re.match(r'^(BTĐL|BTDL|ĐL|DL|DV)', u):
+        base = 'Biệt thự Đơn lập'
+    elif re.match(r'^(BTTL)', u):
+        base = 'Biệt thự Tứ lập'
+    elif re.match(r'^(TMDV)', u):
+        base = 'TMDV'
+    elif re.match(r'^(BT|BIETTHU|BIỆTTHỰ|VT\d*[A-Z]?[-_.]|VT\d+[A-Z]?|VT-)', u):
+        base = 'Biệt thự'
+
+    if not base:
+        return ''
+
+    # Ghép vị trí góc / xẻ khe nếu raw_type có chứa
+    if 'XẺ KHE' in r or 'XE KHE' in r:
+        if base in ('Liền kề', 'Shophouse'):
+            return f"{base} xẻ khe"
+    if 'GÓC' in r or 'GOC' in r or 'ÁP GÓC' in r:
+        if base in ('Liền kề', 'Shophouse', 'Biệt thự Song lập', 'Biệt thự Đơn lập'):
+            return f"{base} góc"
+
+    return base
 
 def compute_expiry_warning(
     issue_date_str: str,

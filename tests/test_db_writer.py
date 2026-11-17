@@ -103,7 +103,7 @@ def test_map_low_rise_row_to_db_record():
     assert rec["product_type"] == "thap_tang"
     assert rec["subdivision_name"] == "Đảo Ngọc"
     assert rec["delivery_standards"] == "Bàn giao thô"
-    assert rec["apartment_type_name"] == "LK"
+    assert rec["apartment_type_name"] == "Liền kề"
     assert rec["land_area"] == Decimal("111.6")
     assert rec["construction_area"] == Decimal("246.1")
     assert rec["price_before_vat"] == Decimal("13500000000")
@@ -125,7 +125,7 @@ def test_map_low_rise_row_to_db_record():
     meta = rec["metadata"]
     assert meta["partner"] == "Vhub"
     assert meta["allocationDate"] == "2026-11-01"
-    assert meta["filterKeys"]["typeKey"] == "lk"
+    assert meta["filterKeys"]["typeKey"] == "lienke"
     assert meta["filterKeys"]["subdivisionKey"] == "daongoc"
     assert meta["filterKeys"]["subdivisionAcronym"] == "dn"
     assert meta["filterKeys"]["directionKeys"] == ["dong_bac", "tay_nam"]

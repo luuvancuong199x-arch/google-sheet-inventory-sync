@@ -151,9 +151,9 @@ def test_non_inventory_tab_regex_bg():
     assert rx.search("Bảng hàng Vịnh Tiên") is None
 
 def test_normalize_types():
-    assert normalize_low_rise_type("Liền kề", "") == "LK"
-    assert normalize_low_rise_type("Shophouse", "") == "SH"
-    assert normalize_low_rise_type("Biệt thự song lập", "") == "BTSL"
+    assert normalize_low_rise_type("Liền kề", "") == "Liền kề"
+    assert normalize_low_rise_type("Shophouse", "") == "Shophouse"
+    assert normalize_low_rise_type("Biệt thự song lập", "") == "Biệt thự Song lập"
     assert normalize_high_rise_type("2BR+1") == "2PN+"
     assert normalize_high_rise_type("Studio") == "STUDIO"
 
@@ -171,10 +171,10 @@ def test_infer_grounded_zone():
 
 def test_infer_grounded_low_rise_type():
     from src.normalizer import infer_grounded_low_rise_type
-    assert infer_grounded_low_rise_type("LK2-05", "") == "LK"
-    assert infer_grounded_low_rise_type("SH-10", "") == "SH"
-    assert infer_grounded_low_rise_type("BTSL-01", "") == "BTSL"
-    assert infer_grounded_low_rise_type("BTĐL-03", "") == "BTĐL"
+    assert infer_grounded_low_rise_type("LK2-05", "") == "Liền kề"
+    assert infer_grounded_low_rise_type("SH-10", "") == "Shophouse"
+    assert infer_grounded_low_rise_type("BTSL-01", "") == "Biệt thự Song lập"
+    assert infer_grounded_low_rise_type("BTĐL-03", "") == "Biệt thự Đơn lập"
     assert infer_grounded_low_rise_type("UNKNOWN-01", "") == ""
 
 def test_compute_expiry_warning():
@@ -305,3 +305,148 @@ def test_realign_legacy_row():
     assert res_no_img[36] == ''
     assert res_no_img[37] == ''
 
+
+
+def test_sanitize_single_area_rescaling():
+    from src.normalizer import sanitize_single_area
+
+    # High rise rescaling
+    assert sanitize_single_area("58320000", is_low_rise=False) == 58.32
+    assert sanitize_single_area("794000", is_low_rise=False) == 79.4
+    assert sanitize_single_area("1930000", is_low_rise=False) == 193.0
+    assert sanitize_single_area("1288", is_low_rise=False) == 128.8
+    assert sanitize_single_area("1359", is_low_rise=False) == 135.9
+    assert sanitize_single_area("610", is_low_rise=False) == 61.0
+    assert sanitize_single_area("575", is_low_rise=False) == 57.5
+
+    # Low rise rescaling
+    assert sanitize_single_area("12375", is_low_rise=True) == 123.75
+    assert sanitize_single_area("3085", is_low_rise=True) == 308.5
+    assert sanitize_single_area("6856", is_low_rise=True) == 685.6
+
+    # Normal untouched
+    assert sanitize_single_area("67.46", is_low_rise=False) == 67.46
+    assert sanitize_single_area("120", is_low_rise=True) == 120.0
+
+
+def test_infer_grounded_low_rise_type_sp_and_vt():
+    from src.normalizer import infer_grounded_low_rise_type
+
+    assert infer_grounded_low_rise_type("CT1C.SP-06") == "Shophouse"
+    assert infer_grounded_low_rise_type("VĐ1.SP-13") == "Shophouse"
+    assert infer_grounded_low_rise_type("TP4.SP1-05") == "Shophouse"
+    assert infer_grounded_low_rise_type("VT47A-02") == "Biệt thự"
+    assert infer_grounded_low_rise_type("VT-03") == "Biệt thự"
+
+
+def test_sanitize_and_cross_validate_prices_guardrail():
+    from src.normalizer import sanitize_and_cross_validate_prices
+
+    # Normal case: total > before_vat
+    tot, prev, dg = sanitize_and_cross_validate_prices(5000000000, 4500000000)
+    assert tot == 5000000000
+    assert prev == 4500000000
+
+    # Abnormal case: before_vat > total (e.g. 4.518B vs 4.267B)
+    tot, prev, dg = sanitize_and_cross_validate_prices(4267000000, 4518336636)
+    assert tot == 4267000000
+    assert prev is None
+
+
+def test_closed_canonical_taxonomy_high_rise():
+    from src.normalizer import normalize_high_rise_type, infer_parkland_high_rise_type
+
+    # 1. Standard valid high-rise types
+    assert normalize_high_rise_type("Studio") == "STUDIO"
+    assert normalize_high_rise_type("ST") == "STUDIO"
+    assert normalize_high_rise_type("1BR") == "1PN"
+    assert normalize_high_rise_type("1BR+") == "1PN+"
+    assert normalize_high_rise_type("1 BR+") == "1PN+"
+    assert normalize_high_rise_type("2BR") == "2PN"
+    assert normalize_high_rise_type("2BR+") == "2PN+"
+    assert normalize_high_rise_type("2 BR+") == "2PN+"
+    assert normalize_high_rise_type("2BRL") == "2PN"
+    assert normalize_high_rise_type("2N2VS") == "2PN"
+    assert normalize_high_rise_type("3BR") == "3PN"
+    assert normalize_high_rise_type("3BR+") == "3PN+"
+    assert normalize_high_rise_type("3BRL") == "3PN"
+    assert normalize_high_rise_type("4BR") == "4PN"
+    assert normalize_high_rise_type("4BRL") == "4PN"
+    assert normalize_high_rise_type("5BR") == "5PN"
+    assert normalize_high_rise_type("Duplex") == "DUPLEX"
+    assert normalize_high_rise_type("Penthouse") == "PENTHOUSE"
+    assert normalize_high_rise_type("Triplex") == "TRIPLEX"
+    assert normalize_high_rise_type("Shop") == "Shophouse chân đế"
+    assert normalize_high_rise_type("Shop chân đế") == "Shophouse chân đế"
+    assert normalize_high_rise_type("SHOP TẦNG 01&02") == "Shophouse chân đế"
+    assert normalize_high_rise_type("1") == "1PN"
+    assert normalize_high_rise_type("2") == "2PN"
+    assert normalize_high_rise_type("3") == "3PN"
+    assert normalize_high_rise_type("5") == "5PN"
+
+    # 2. Rejection of view descriptions, locations, towers, areas
+    assert normalize_high_rise_type("TRỰC DIỆN CV NỘI KHU 7.000M2") == ""
+    assert normalize_high_rise_type("VIEW BIỆT THỰ ĐẢO NGỌC TRAI") == ""
+    assert normalize_high_rise_type("QUẢNG TRƯỜNG KĐAS VÀ TOÀN BỘ OCP2.3") == ""
+    assert normalize_high_rise_type("CĂN GÓC VIEW NỘI KHU XANH THOÁNG") == ""
+    assert normalize_high_rise_type("VIEW BỂ BƠI & NỘI KHU CÂY XANH") == ""
+    assert normalize_high_rise_type("M1") == ""
+    assert normalize_high_rise_type("M3") == ""
+    assert normalize_high_rise_type("P6") == ""
+    assert normalize_high_rise_type("52") == ""
+    assert normalize_high_rise_type("97,8") == ""
+    assert normalize_high_rise_type("NỘI KHU") == ""
+    assert normalize_high_rise_type("NGOẠI KHU") == ""
+    assert normalize_high_rise_type("TIỆN ÍCH") == ""
+    assert normalize_high_rise_type("TRƯỜNG HỌC") == ""
+    assert normalize_high_rise_type("ĐƯỜNG NGUYỄN TRÃI") == ""
+    assert normalize_high_rise_type("BEVERLY") == ""
+    assert normalize_high_rise_type("THE OPUS ONE") == ""
+    assert normalize_high_rise_type("HH-B-10-21") == ""
+
+    # 3. Grounded Parkland inference
+    assert infer_parkland_high_rise_type("P6", "08A", 31.69) == "STUDIO"
+    assert infer_parkland_high_rise_type("P6", "17", 46.71) == "1PN+"
+    assert infer_parkland_high_rise_type("M1", "05A", 58.63) == "2PN"
+    assert infer_parkland_high_rise_type("M1", "01", 67.44) == "2PN+"
+    assert infer_parkland_high_rise_type("P5", "06", 81.0) == "3PN"
+    assert infer_parkland_high_rise_type("UNKNOWN", "UNKNOWN", 32.0) == "STUDIO"
+    assert infer_parkland_high_rise_type("UNKNOWN", "UNKNOWN", 48.0) == "1PN+"
+    assert infer_parkland_high_rise_type("UNKNOWN", "UNKNOWN", 58.0) == "2PN"
+    assert infer_parkland_high_rise_type("UNKNOWN", "UNKNOWN", 67.0) == "2PN+"
+    assert infer_parkland_high_rise_type("UNKNOWN", "UNKNOWN", 80.0) == "3PN"
+
+
+def test_closed_canonical_taxonomy_low_rise():
+    from src.normalizer import normalize_low_rise_type, infer_grounded_low_rise_type
+
+    # 1. Standard low-rise types
+    assert normalize_low_rise_type("Liền kề") == "Liền kề"
+    assert normalize_low_rise_type("Liền kề góc") == "Liền kề góc"
+    assert normalize_low_rise_type("Liền kề xẻ khe") == "Liền kề xẻ khe"
+    assert normalize_low_rise_type("Shophouse") == "Shophouse"
+    assert normalize_low_rise_type("Shophouse góc") == "Shophouse góc"
+    assert normalize_low_rise_type("Shophouse xẻ khe") == "Shophouse xẻ khe"
+    assert normalize_low_rise_type("Biệt thự Song lập") == "Biệt thự Song lập"
+    assert normalize_low_rise_type("Biệt thự Đơn lập") == "Biệt thự Đơn lập"
+    assert normalize_low_rise_type("Biệt thự Tứ lập") == "Biệt thự Tứ lập"
+    assert normalize_low_rise_type("TMDV") == "TMDV"
+
+    # 2. Rejection of standalone positions, areas, subdivisions
+    assert normalize_low_rise_type("XẺ KHE") == ""
+    assert normalize_low_rise_type("GÓC") == ""
+    assert normalize_low_rise_type("THƯỜNG") == ""
+    assert normalize_low_rise_type("ÁP GÓC") == ""
+    assert normalize_low_rise_type("CLARKE QUAY") == ""
+    assert normalize_low_rise_type("P. THỦY NGUYÊN") == ""
+    assert normalize_low_rise_type("144.2") == ""
+    assert normalize_low_rise_type("328.0") == ""
+    assert normalize_low_rise_type("#N/A") == ""
+    assert normalize_low_rise_type("THẤP TẦNG") == ""
+
+    # 3. Grounded low-rise inference with position composition
+    assert infer_grounded_low_rise_type("AS61-30", "XẺ KHE") == "Liền kề xẻ khe"
+    assert infer_grounded_low_rise_type("TL35-49", "XẺ KHE") == "Shophouse xẻ khe"
+    assert infer_grounded_low_rise_type("TL12.01", "GÓC ĐẦU HỒI") == "Shophouse góc"
+    assert infer_grounded_low_rise_type("AS60-40", "150.1") == "Liền kề"
+    assert infer_grounded_low_rise_type("TL8-82", "328.0") == "Shophouse"

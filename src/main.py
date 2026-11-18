@@ -122,14 +122,28 @@ def sync_single_project(
     existing_pool = read_existing_target_pool(
         sheets_service, target_id, target_tab_name, is_low_rise=is_low_rise
     )
-    agency_links = get_agency_links_from_target_sheet(
+    target_links = get_agency_links_from_target_sheet(
         sheets_service, target_id, sub_tab=sub_tab
     )
+    master_links = get_project_agency_links(
+        sheets_service, project_key, sub_tab=sub_tab
+    )
+    # Hợp nhất danh mục đại lý: Target Sheet là ưu tiên, bổ sung các đại lý có trong Master Sheet nếu chưa có
+    seen_keys = set()
+    agency_links = []
+    for l in target_links:
+        k = (l.get("agency", "").upper().strip(), l.get("file_id", ""), l.get("gid"))
+        if k not in seen_keys:
+            seen_keys.add(k)
+            agency_links.append(l)
+    for l in master_links:
+        k = (l.get("agency", "").upper().strip(), l.get("file_id", ""), l.get("gid"))
+        if k not in seen_keys:
+            seen_keys.add(k)
+            agency_links.append(l)
     if not agency_links:
-        agency_links = get_project_agency_links(
-            sheets_service, project_key, sub_tab=sub_tab
-        )
-    logger.info(f"Tìm thấy {len(agency_links)} link đại lý cho dự án {project_name}")
+        agency_links = target_links or master_links
+    logger.info(f"Tìm thấy {len(agency_links)} link đại lý cho dự án {project_name} (Target: {len(target_links)}, Master: {len(master_links)})")
 
     scanned, successful_agencies, link_sync_stats = fetch_all_agencies_for_project(
         sheets_service,

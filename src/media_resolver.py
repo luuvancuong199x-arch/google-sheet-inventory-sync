@@ -261,8 +261,6 @@ def expand_and_classify_media_urls(
             if files:
                 for f_url in files:
                     add_chican(f_url)
-            else:
-                add_chican(u_clean)
         else:
             add_chican(u_clean)
 
@@ -278,8 +276,6 @@ def expand_and_classify_media_urls(
             if files:
                 for f_url in files:
                     add_chican(f_url)
-            else:
-                add_chican(u_clean)
         else:
             add_chican(u_clean)
 
@@ -294,8 +290,6 @@ def expand_and_classify_media_urls(
             if files:
                 for f_url in files:
                     add_ptg(f_url)
-            else:
-                add_ptg(u_clean)
         else:
             add_ptg(u_clean)
 

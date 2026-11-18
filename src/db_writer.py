@@ -28,6 +28,7 @@ from src.normalizer import (
     sanitize_and_cross_validate_prices
 )
 from src.merger import extract_clean_agency_name
+from src.media_resolver import extract_drive_folder_id, fetch_drive_folder_files
 
 logger = logging.getLogger(__name__)
 
@@ -322,12 +323,24 @@ def _extract_urls(val: Any) -> Tuple[Optional[str], List[str]]:
         return None, []
     urls = re.findall(r'https?://[^\s"\'<>)\],;]+', s)
     seen = []
+    first_url = None
     for u in urls:
-        if u not in seen:
-            seen.append(u)
-    if seen:
-        return seen[0], seen
-    return None, []
+        clean_u = u.strip().rstrip('.,;')
+        if not clean_u:
+            continue
+        if first_url is None:
+            first_url = clean_u
+        fid = extract_drive_folder_id(clean_u)
+        if fid:
+            files = fetch_drive_folder_files(fid)
+            if files:
+                for f_url in files:
+                    if f_url not in seen:
+                        seen.append(f_url)
+        else:
+            if clean_u not in seen:
+                seen.append(clean_u)
+    return first_url, seen
 
 
 def _parse_floor_sort_order(floor_val: Any) -> Optional[int]:

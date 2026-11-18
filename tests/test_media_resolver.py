@@ -100,8 +100,8 @@ def test_expand_and_classify_media_urls_backward_compat_cache():
         combined_urls=[folder_url]
     )
 
-    # Đọc được cả chi_can và ptg từ cache cũ và gộp toàn bộ vào c_out
+    # Đọc được cả ptg và chi_can từ cache cũ, ưu tiên ảnh dọc (ptg) lên đầu danh sách
     assert len(c_out) == 2
-    assert "old_chi_can" in c_out[0]
-    assert "old_ptg" in c_out[1]
+    assert "old_ptg" in c_out[0]
+    assert "old_chi_can" in c_out[1]
     assert len(p_out) == 0

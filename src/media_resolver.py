@@ -132,10 +132,14 @@ def fetch_drive_folder_files(
                 return list(entry)
             if isinstance(entry, dict):
                 urls = []
-                for u in entry.get("all_files", []):
+                # Ưu tiên các file ảnh dọc (ptg) lên đầu danh sách hiển thị
+                for u in entry.get("ptg", []):
                     if u not in urls:
                         urls.append(u)
-                for u in entry.get("chi_can", []) + entry.get("ptg", []):
+                for u in entry.get("chi_can", []):
+                    if u not in urls:
+                        urls.append(u)
+                for u in entry.get("all_files", []):
                     if u not in urls:
                         urls.append(u)
                 if urls:
@@ -149,14 +153,26 @@ def fetch_drive_folder_files(
     try:
         call = drive_service.files().list(
             q=f"'{folder_id}' in parents and trashed = false",
-            fields="files(id, name, mimeType)",
+            fields="files(id, name, mimeType, imageMediaMetadata)",
             pageSize=50
         )
         resp = _execute_api_call(call)
         files = resp.get("files", [])
+
+        def is_portrait(f):
+            meta = f.get('imageMediaMetadata', {}) or {}
+            w = int(meta.get('width', 0) or 0)
+            h = int(meta.get('height', 0) or 0)
+            if w > 0 and h > 0:
+                return h > w
+            name = str(f.get('name', '')).lower()
+            return name.endswith('.png') or 'ptg' in name or 'poster' in name
+
+        # Sắp xếp ưu tiên ảnh tỉ lệ dọc (portrait: h > w) lên đầu danh sách hiển thị
+        sorted_files = sorted(files, key=lambda f: (0 if is_portrait(f) else 1, f.get('name', '')))
         urls = [
             f"https://drive.google.com/file/d/{f['id']}/view?usp=drivesdk"
-            for f in files if f.get('id')
+            for f in sorted_files if f.get('id')
         ]
 
         with _CACHE_LOCK:

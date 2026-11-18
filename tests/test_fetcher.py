@@ -19,6 +19,21 @@ def test_map_columns_from_headers():
     assert col_map["gia_full"] == 6
     assert col_map["chi_can"] == 7
 
+def test_map_columns_combined_media():
+    # Trường hợp 1: Có cả cột Ảnh chỉ căn, Ảnh PTG và Ẩnh chỉ căn+ PTG (như Vhub Làng Vân)
+    headers_vhub = ["STT", "Mã căn", "Ảnh chỉ căn", "Ảnh phiếu tính giá\n", "Ẩnh chỉ căn+ PTG"]
+    col_map1 = map_columns_from_headers(headers_vhub)
+    assert col_map1["combined_media"] == 4
+    assert col_map1["chi_can"] == 2
+    assert col_map1["ptg"] == 3
+
+    # Trường hợp 2: Chỉ có duy nhất 1 cột gộp PTG/Ảnh chỉ căn (như Global Gate)
+    headers_gg = ["STT", "Mã căn", "PTG/Ảnh chỉ căn"]
+    col_map2 = map_columns_from_headers(headers_gg)
+    assert col_map2["combined_media"] == 2
+    assert col_map2["chi_can"] == -1
+    assert col_map2["ptg"] == -1
+
 def test_detect_header_row():
     rows = [
         ["BẢNG HÀNG DỰ ÁN 2026", "", "", ""],

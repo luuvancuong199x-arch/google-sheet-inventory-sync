@@ -156,9 +156,12 @@ def map_columns_from_headers(header_cells: List[str]) -> Dict[str, int]:
     headers = [unicodedata.normalize('NFC', str(c or '')).lower().strip() for c in header_cells]
     col_map = {}
 
-    def find_col(regex_list):
+    def find_col(regex_list, exclude=None):
+        ex_set = set(exclude or [])
         for rx in regex_list:
             for idx, h in enumerate(headers):
+                if idx in ex_set:
+                    continue
                 if re.search(rx, h, re.IGNORECASE):
                     return idx
         return -1
@@ -220,9 +223,15 @@ def map_columns_from_headers(header_cells: List[str]) -> Dict[str, int]:
         r'(\bđq\b|\bdq\b|\bqđq\b|\bdqd\b)'
     ])
     col_map["fund_group"] = find_col([r'(nhóm\s*quỹ|nhom\s*quy|loại\s*quỹ|loai\s*quy|nguồn\s*quỹ|nguon\s*quy|thuộc\s*quỹ)'])
-    col_map["chi_can"] = find_col([r'(ảnh\s*chỉ\s*căn|anh\s*chi\s*can|chỉ\s*căn|chi\s*can|mặt\s*bằng|mat\s*bang|layout|hình\s*ảnh|hinh\s*anh|link\s*ảnh|link\s*anh)'])
-    col_map["ptg"] = find_col([r'(ảnh\s*phiếu\s*tính\s*giá|anh\s*phieu\s*tinh\s*gia|phiếu\s*tính\s*giá|phieu\s*tinh\s*gia|bảng\s*tính\s*giá|bang\s*tinh\s*gia|bảng\s*tính|bang\s*tinh|ảnh\s*ptg|anh\s*ptg|\bptg\b|link\s*ptg|tài\s*liệu|tai\s*lieu)'])
-    col_map["combined_media"] = find_col([r'(ptg\s*/\s*ảnh|ảnh\s*/\s*ptg|ptg/ảnh|ảnh/ptg|ảnh\s*chỉ\s*căn\s*\+\s*ptg|ptg\s*\+\s*ảnh)'])
+    col_map["combined_media"] = find_col([
+        r'([a-zà-ỹ]*nh\s*chỉ\s*căn\s*[\+/&]\s*ptg|ptg\s*[\+/&]\s*[a-zà-ỹ]*nh\s*chỉ\s*căn)',
+        r'(ptg\s*[/+&]\s*[a-zà-ỹ]*nh|[a-zà-ỹ]*nh\s*[/+&]\s*ptg)',
+        r'(\bptg\b.*(\b[a-zà-ỹ]*nh\b|chỉ\s*căn)|(\b[a-zà-ỹ]*nh\b|chỉ\s*căn).*\bptg\b)',
+        r'(ptg\s*/\s*ảnh|ảnh\s*/\s*ptg|ptg/ảnh|ảnh/ptg|ảnh\s*chỉ\s*căn\s*\+\s*ptg|ptg\s*\+\s*ảnh)'
+    ])
+    comb_ex = [col_map["combined_media"]] if col_map["combined_media"] != -1 else []
+    col_map["chi_can"] = find_col([r'(ảnh\s*chỉ\s*căn|anh\s*chi\s*can|chỉ\s*căn|chi\s*can|mặt\s*bằng|mat\s*bang|layout|hình\s*ảnh|hinh\s*anh|link\s*ảnh|link\s*anh)'], exclude=comb_ex)
+    col_map["ptg"] = find_col([r'(ảnh\s*phiếu\s*tính\s*giá|anh\s*phieu\s*tinh\s*gia|phiếu\s*tính\s*giá|phieu\s*tinh\s*gia|bảng\s*tính\s*giá|bang\s*tinh\s*gia|bảng\s*tính|bang\s*tinh|ảnh\s*ptg|anh\s*ptg|\bptg\b|link\s*ptg|tài\s*liệu|tai\s*lieu)'], exclude=comb_ex)
     col_map["issue_date"] = find_col([r'(ngày\s*cấp|ngay\s*cap|ngày\s*vào\s*hàng|ngày\s*cập\s*nhật)'])
 
     return col_map
@@ -249,6 +258,11 @@ def extract_urls_from_cell_data(c: Dict[str, Any]) -> List[str]:
             if clean_u and clean_u not in seen:
                 seen.add(clean_u)
                 found_urls.append(clean_u)
+        for m in re.findall(r'(?:(?:drive\.google\.com|docs\.google\.com)/[^\s"\'<>)\],;]+|folders/[a-zA-Z0-9_-]{15,}[^\s"\'<>)\],;]*)', u_str):
+            full_u = ('https://' if not m.startswith('folders/') else 'https://drive.google.com/drive/') + m.strip().rstrip('.,;')
+            if full_u and full_u not in seen:
+                seen.add(full_u)
+                found_urls.append(full_u)
 
     # 1. Smart Chips
     for cr in c.get('chipRuns', []) or []:
@@ -368,6 +382,10 @@ def parse_agency_grid_data(
             clean_u = m.strip().rstrip('.,;')
             if clean_u and clean_u not in found:
                 found.append(clean_u)
+        for m in re.findall(r'(?:(?:drive\.google\.com|docs\.google\.com)/[^\s"\'<>)\],;]+|folders/[a-zA-Z0-9_-]{15,}[^\s"\'<>)\],;]*)', str(fv or '')):
+            full_u = ('https://' if not m.startswith('folders/') else 'https://drive.google.com/drive/') + m.strip().rstrip('.,;')
+            if full_u and full_u not in found:
+                found.append(full_u)
         return found
 
     def get_url(row, c_idx):
@@ -1037,6 +1055,10 @@ def fetch_agency_from_drive_xlsx(
                         clean_m = m.strip().rstrip('.,;')
                         if clean_m and clean_m not in urls:
                             urls.append(clean_m)
+                    for m in re.findall(r'(?:(?:drive\.google\.com|docs\.google\.com)/[^\s"\'<>)\],;]+|folders/[a-zA-Z0-9_-]{15,}[^\s"\'<>)\],;]*)', val):
+                        full_u = ('https://' if not m.startswith('folders/') else 'https://drive.google.com/drive/') + m.strip().rstrip('.,;')
+                        if full_u not in urls:
+                            urls.append(full_u)
                     if not link and urls:
                         link = urls[0]
                     color_type = get_openpyxl_cell_color(c)

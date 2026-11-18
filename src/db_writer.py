@@ -30,6 +30,14 @@ from src.normalizer import (
 from src.merger import extract_clean_agency_name
 from src.media_resolver import extract_drive_folder_id, fetch_drive_folder_files
 
+try:
+    from src.zalo_notifier import enqueue_zalo_notification
+except ImportError:
+    try:
+        from zalo_notifier import enqueue_zalo_notification
+    except ImportError:
+        enqueue_zalo_notification = None
+
 logger = logging.getLogger(__name__)
 
 VN_TZ = timezone(timedelta(hours=7))
@@ -1003,6 +1011,93 @@ ON CONFLICT (product_code, project_id) DO UPDATE SET
 """
 
 
+def _send_sold_notification(
+    cur,
+    project_id: str,
+    project_name: str,
+    sold_items: List[Dict[str, Any]],
+    sync_time: datetime,
+) -> None:
+    """Gửi thông báo Zalo khi có căn chuyển sang trạng thái Đã bán."""
+    if not enqueue_zalo_notification or not sold_items:
+        return
+    try:
+        codes = sorted(list({r["product_code"] for r in sold_items if r.get("product_code")}))
+        if not codes:
+            return
+
+        preview_lines = []
+        for c in codes[:20]:
+            preview_lines.append(f"  · {c}")
+        if len(codes) > 20:
+            preview_lines.append(f"  · ... và {len(codes) - 20} căn khác")
+
+        time_str = sync_time.strftime("%H:%M %d/%m/%Y")
+        text = (
+            f"🔴 Căn đã xác nhận bán\n"
+            f"· Dự án: {project_name}\n"
+            f"· Số lượng: {len(codes)} căn\n"
+            f"· Danh sách căn:\n" + "\n".join(preview_lines) + "\n"
+            f"· Thời gian: {time_str}\n"
+            f"· Nguồn: Bảng hàng chuẩn hóa\n"
+            f"Truy cập: https://vhub.com.vn/"
+        )
+        dedupe_key = f"sheet-sold:{project_id}:{sync_time.strftime('%Y%m%d%H%M')}"
+        enqueue_zalo_notification(
+            cur=cur,
+            project_id=project_id,
+            event_type="sheet_sold_confirmed",
+            text=text,
+            dedupe_key=dedupe_key,
+            extra_payload={"soldCodes": codes, "project_name": project_name},
+        )
+    except Exception as e:
+        logger.error(f"Lỗi khi gửi thông báo căn đã bán qua Zalo cho '{project_id}': {e}", exc_info=True)
+
+
+def _send_new_products_notification(
+    cur,
+    project_id: str,
+    project_name: str,
+    new_items: List[Dict[str, Any]],
+    sync_time: datetime,
+) -> None:
+    """Gửi thông báo Zalo khi có căn mới được bổ sung vào bảng hàng."""
+    if not enqueue_zalo_notification or not new_items:
+        return
+    try:
+        codes = sorted(list({r["product_code"] for r in new_items if r.get("product_code")}))
+        if not codes:
+            return
+
+        preview_lines = []
+        for c in codes[:20]:
+            preview_lines.append(f"  · {c}")
+        if len(codes) > 20:
+            preview_lines.append(f"  · ... và {len(codes) - 20} căn khác")
+
+        time_str = sync_time.strftime("%H:%M %d/%m/%Y")
+        text = (
+            f"🟢 Căn mới được thêm vào bảng hàng\n"
+            f"· Dự án: {project_name}\n"
+            f"· Số lượng: {len(codes)} căn mới\n"
+            f"· Danh sách căn:\n" + "\n".join(preview_lines) + "\n"
+            f"· Thời gian cập nhật: {time_str}\n"
+            f"Truy cập: https://vhub.com.vn/"
+        )
+        dedupe_key = f"sheet-new:{project_id}:{sync_time.strftime('%Y%m%d%H%M')}"
+        enqueue_zalo_notification(
+            cur=cur,
+            project_id=project_id,
+            event_type="sheet_new_products",
+            text=text,
+            dedupe_key=dedupe_key,
+            extra_payload={"newCodes": codes, "project_name": project_name},
+        )
+    except Exception as e:
+        logger.error(f"Lỗi khi gửi thông báo căn mới qua Zalo cho '{project_id}': {e}", exc_info=True)
+
+
 def bulk_upsert_products_to_db(
     rows: List[List[Any]],
     project_key: str,
@@ -1046,6 +1141,38 @@ def bulk_upsert_products_to_db(
     reconciled_count = 0
     try:
         with conn.cursor() as cur:
+            # 0. Snapshot trạng thái cũ của dự án để phát hiện căn mới & căn chuyển sang Đã bán
+            cur.execute(
+                """
+                SELECT product_code, state_line, subdivision_name, fund_groups_sell_name
+                FROM products
+                WHERE project_id = %s;
+                """,
+                (project_id,),
+            )
+            old_products = {
+                row[0].strip().upper(): {
+                    "product_code": row[0],
+                    "state_line": row[1],
+                    "subdivision_name": row[2],
+                    "fund_groups_sell_name": row[3],
+                }
+                for row in cur.fetchall()
+            }
+
+            newly_added = []
+            now_sold = []
+            if len(old_products) > 0:
+                for rec in records:
+                    code_key = rec["product_code"].strip().upper()
+                    if code_key not in old_products:
+                        newly_added.append(rec)
+                    else:
+                        old_st = old_products[code_key]["state_line"]
+                        new_st = rec.get("state_line")
+                        if new_st == "sold" and old_st not in ("sold", None):
+                            now_sold.append(rec)
+
             for i in range(0, len(records), chunk_size):
                 chunk = records[i : i + chunk_size]
                 tuples = []
@@ -1068,22 +1195,41 @@ def bulk_upsert_products_to_db(
                         updated_at = %s
                     WHERE project_id = %s
                       AND (last_source_observed_at IS NULL OR last_source_observed_at < %s)
-                      AND is_not_show = false;
+                      AND is_not_show = false
+                    RETURNING product_code, subdivision_name, fund_groups_sell_name;
                     """,
                     ("%còn hàng%", sync_start_time, project_id, sync_start_time),
                 )
-                reconciled_count = cur.rowcount if isinstance(cur.rowcount, int) else 0
+                try:
+                    reconciled_rows = cur.fetchall() if getattr(cur, "description", None) else []
+                except Exception:
+                    reconciled_rows = []
+                reconciled_count = cur.rowcount if isinstance(cur.rowcount, int) and cur.rowcount >= 0 else len(reconciled_rows)
                 if reconciled_count > 0:
                     logger.info(
                         f"🧹 [DB Reconcile] Đã ẩn và cập nhật trạng thái {reconciled_count} căn không còn tồn tại "
                         f"trong bảng hàng nguồn (project_id='{project_id}')"
                     )
+                    for r in reconciled_rows:
+                        if isinstance(r, (list, tuple)) and len(r) >= 3:
+                            now_sold.append({
+                                "product_code": r[0],
+                                "subdivision_name": r[1],
+                                "fund_groups_sell_name": r[2],
+                            })
 
             # Xóa cache filter facet cũ của dự án để Backend tự động rebuild khi FE gọi
             cur.execute(
                 "DELETE FROM project_filter_facets WHERE project_id = %s;",
                 (project_id,),
             )
+
+            # Gửi thông báo Zalo biến động sản phẩm cho các tài khoản được phân quyền
+            if len(now_sold) > 0:
+                _send_sold_notification(cur, project_id, project_name, now_sold, sync_start_time)
+
+            if len(newly_added) > 0 and len(newly_added) <= 50:
+                _send_new_products_notification(cur, project_id, project_name, newly_added, sync_start_time)
 
             # Phát tín hiệu PostgreSQL NOTIFY để Web API nhận biết cập nhật bảng hàng tức thì
             notify_payload = json.dumps(

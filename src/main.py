@@ -125,25 +125,22 @@ def sync_single_project(
     target_links = get_agency_links_from_target_sheet(
         sheets_service, target_id, sub_tab=sub_tab
     )
-    master_links = get_project_agency_links(
-        sheets_service, project_key, sub_tab=sub_tab
-    )
-    # Hợp nhất danh mục đại lý: Target Sheet là ưu tiên, bổ sung các đại lý có trong Master Sheet nếu chưa có
-    seen_keys = set()
-    agency_links = []
-    for l in target_links:
-        k = (l.get("agency", "").upper().strip(), l.get("file_id", ""), l.get("gid"))
-        if k not in seen_keys:
-            seen_keys.add(k)
-            agency_links.append(l)
-    for l in master_links:
-        k = (l.get("agency", "").upper().strip(), l.get("file_id", ""), l.get("gid"))
-        if k not in seen_keys:
-            seen_keys.add(k)
-            agency_links.append(l)
-    if not agency_links:
-        agency_links = target_links or master_links
-    logger.info(f"Tìm thấy {len(agency_links)} link đại lý cho dự án {project_name} (Target: {len(target_links)}, Master: {len(master_links)})")
+    if target_links:
+        # Nguồn trong tab 'Danh mục Link Đại lý' của Target Sheet là nguồn chuẩn duy nhất (Single Source of Truth)
+        agency_links = target_links
+        logger.info(
+            f"Tìm thấy {len(agency_links)} link đại lý chuẩn theo tab 'Danh mục Link Đại lý' của dự án {project_name}"
+        )
+    else:
+        # Chỉ fallback sang Master Sheet nếu Target Sheet không có tab hoặc hoàn toàn trống rỗng
+        master_links = get_project_agency_links(
+            sheets_service, project_key, sub_tab=sub_tab
+        )
+        agency_links = master_links
+        logger.info(
+            f"Không tìm thấy tab 'Danh mục Link Đại lý' trong Target Sheet. "
+            f"Fallback sang Master Sheet: {len(agency_links)} link cho dự án {project_name}"
+        )
 
     scanned, successful_agencies, link_sync_stats = fetch_all_agencies_for_project(
         sheets_service,
